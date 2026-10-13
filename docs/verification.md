@@ -4,6 +4,7 @@ Date: 2026-10-13. Target: Windows x64, version 0.1.0.
 
 - 29 automated checks pass: 19 calendar/AI-stream checks, 6 desktop and OAuth-boundary checks, and 4 static-template packaging checks.
 - Production frontend build passes.
+- Appa source rename verified on 2026-10-13: the native window, document title and main heading show Appa; the original desktop storage origin is retained. The full 29-check suite and production build pass after the rename. The published 0.1.0 installer predates the rename.
 - Windows NSIS installer was built locally from the compiled frontend and official Electron 44.7.0 runtime, using electron-builder 26.15.3. The installer is unsigned.
 - The packaged Windows executable was verified through its native interface: empty first launch, manual goal creation, approval and scheduling, Undo, quit/reopen, and restoration of an unfinished planner draft. The same local storage origin was retained after reopening. The synthetic goal was undone and its draft cleared after verification.
 - Existing browser calendar flows were verified before desktop packaging, including goal planning, activation beyond two goals, completion, recovery, backup/import and responsive layouts.

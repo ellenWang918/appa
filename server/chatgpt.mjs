@@ -312,7 +312,7 @@ export function createChatgptService({
     }
     res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
     res.end(
-      `<!doctype html><meta name="referrer" content="no-referrer"><title>AI Goal Calendar</title><style>body{font:17px system-ui;color:#131c37;max-width:540px;margin:14vh auto;padding:24px;line-height:1.6}h1{font-size:24px}</style><h1>AI Goal Calendar</h1><p>${message.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char])}</p>`,
+      `<!doctype html><meta name="referrer" content="no-referrer"><title>Appa</title><style>body{font:17px system-ui;color:#131c37;max-width:540px;margin:14vh auto;padding:24px;line-height:1.6}h1{font-size:24px}</style><h1>Appa</h1><p>${message.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char])}</p>`,
     );
   }
   async function listener() {
@@ -444,7 +444,7 @@ export function createChatgptService({
           const authorize = new URL(settings.authorization_endpoint);
           authorize.search = new URLSearchParams({
             client_id: clientId,
-            ...(!account ? { agent_name_hint: "AI Goal Calendar" } : {}),
+            ...(!account ? { agent_name_hint: "Appa" } : {}),
             ext_agent_host_id: metadata.hostId,
             response_type: "code",
             redirect_uri: redirectUri,

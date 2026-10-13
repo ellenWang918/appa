@@ -23,6 +23,7 @@ const referenceMode =
   import.meta.env.DEV &&
   new URLSearchParams(location.search).get("reference") === "evening-planner";
 const dayFor = (zone) => (referenceMode ? "2026-10-12" : cal.localDate(zone));
+// Keep the original storage keys so the Appa rename preserves saved goals.
 const STORAGE = referenceMode
   ? "ai-goal-calendar.reference.v1"
   : "ai-goal-calendar.v1";
@@ -50,7 +51,7 @@ function load() {
     };
   }
 }
-function download(value, name = "goal-calendar-backup.json") {
+function download(value, name = "appa-backup.json") {
   const url = URL.createObjectURL(
     new Blob(
       [typeof value === "string" ? value : JSON.stringify(value, null, 2)],
@@ -207,7 +208,7 @@ export function App() {
             goToday();
           }}
         >
-          AI Goal Calendar
+          Appa
         </a>
         <nav className="view-tabs" aria-label="Calendar view">
           <button

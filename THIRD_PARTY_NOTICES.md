@@ -1,6 +1,6 @@
 # Third-party notices
 
-AI Goal Calendar is MIT licensed. Its dependencies retain their own licenses. Full license text for bundled interface and AI-service dependencies is included in the third-party directory.
+Appa is MIT licensed. Its dependencies retain their own licenses. Full license text for bundled interface and AI-service dependencies is included in the third-party directory.
 
 - React and React DOM: MIT, Meta Platforms and contributors.
 - jose: MIT, Filip Skokan.

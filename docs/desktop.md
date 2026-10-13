@@ -10,7 +10,7 @@ The loopback server requires an unguessable per-launch HttpOnly device cookie se
 
 ## Data locations
 
-On Windows, the production user-data folder is normally `%APPDATA%/AI Goal Calendar`. The app's persistent partition contains calendar localStorage. `desktop.json` retains its origin's port, and `connection/registrations.json` retains the stable host ID and non-secret account/client mapping. OAuth access and refresh tokens are held in memory only.
+On Windows, Appa retains the original user-data folder `%APPDATA%/AI Goal Calendar` explicitly, including the Chromium session directory. The original installer app ID, persistent partition and calendar storage keys also stay stable, so renaming the app preserves existing goals, drafts, settings and account registration metadata. The app's persistent partition contains calendar localStorage. `desktop.json` retains its origin's port, and `connection/registrations.json` retains the stable host ID and non-secret account/client mapping. OAuth access and refresh tokens are held in memory only.
 
 Do not change or delete `desktop.json` to solve a port conflict: a changed origin would hide the existing calendar. Close the process occupying the saved port and reopen the app. Back up the entire user-data directory while the app is closed before attempting manual repair. For a damaged registration file, preserve a copy and contact the maintainer before reconnecting.
 

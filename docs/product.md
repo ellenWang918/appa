@@ -1,6 +1,6 @@
 # Product behavior
 
-AI Goal Calendar helps one person turn an intention into a manageable next action, and return after missed work without manually repairing the calendar.
+Appa helps one person turn an intention into a manageable next action, and return after missed work without manually repairing the calendar.
 
 ## Agreed behavior
 

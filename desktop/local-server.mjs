@@ -123,7 +123,7 @@ export async function startLocalApp({
     server.close();
     throw new Error(
       error.code === "EADDRINUSE"
-        ? "Another application is using this calendar's saved local address. Close it and reopen AI Goal Calendar. Your saved goals have been preserved."
+        ? "Another application is using this calendar's saved local address. Close it and reopen Appa. Your saved goals have been preserved."
         : "The local calendar could not start. Check access to its application data folder.",
     );
   }

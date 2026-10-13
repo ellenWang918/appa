@@ -27,7 +27,7 @@ jobs:
           }
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: ai-goal-calendar-windows
+          name: appa-windows
           path: |
             release/*-Setup.exe
             release/*.sha256

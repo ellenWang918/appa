@@ -1,5 +1,5 @@
 appId: com.ellenwang918.aigoalcalendar
-productName: AI Goal Calendar
+productName: Appa
 asar: true
 directories:
   output: release
@@ -17,7 +17,7 @@ win:
   target:
     - target: nsis
       arch: [x64]
-  artifactName: AI-Goal-Calendar-${version}-Windows-${arch}-Setup.${ext}
+  artifactName: Appa-${version}-Windows-${arch}-Setup.${ext}
   signAndEditExecutable: false
 nsis:
   oneClick: false

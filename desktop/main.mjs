@@ -1,10 +1,16 @@
 import { app, BrowserWindow, Menu, dialog, shell } from "electron";
 import { randomBytes } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { startLocalApp } from "./local-server.mjs";
 import { isAllowedExternal } from "./policy.mjs";
 
-app.setName("AI Goal Calendar");
+app.setName("Appa");
+// Retain the original profile and installer identity across the Appa rename.
+const dataRoot = path.join(app.getPath("appData"), "AI Goal Calendar");
+mkdirSync(dataRoot, { recursive: true });
+app.setPath("userData", dataRoot);
+app.setPath("sessionData", dataRoot);
 app.setAppUserModelId("com.ellenwang918.aigoalcalendar");
 app.commandLine.appendSwitch("force-renderer-accessibility");
 const hasLock = app.requestSingleInstanceLock();
@@ -29,7 +35,7 @@ else {
         height: 980,
         minWidth: 800,
         minHeight: 640,
-        title: "AI Goal Calendar",
+        title: "Appa",
         backgroundColor: "#ffffff",
         show: false,
         autoHideMenuBar: true,
@@ -112,12 +118,12 @@ else {
                   ),
               },
               {
-                label: "About AI Goal Calendar",
+                label: "About Appa",
                 click: () =>
                   dialog.showMessageBox(mainWindow, {
                     type: "info",
-                    title: "AI Goal Calendar",
-                    message: `AI Goal Calendar ${app.getVersion()}`,
+                    title: "Appa",
+                    message: `Appa ${app.getVersion()}`,
                     detail:
                       "A local, open-source personal planner. Connect your own eligible ChatGPT account for AI planning. Manual planning works offline. Calendar data is saved on this computer; use Settings & backup to keep a copy.",
                   }),
@@ -129,7 +135,7 @@ else {
       mainWindow.once("ready-to-show", () => mainWindow.show());
       await mainWindow.loadURL(runtime.origin);
     } catch (error) {
-      dialog.showErrorBox("AI Goal Calendar could not start", error.message);
+      dialog.showErrorBox("Appa could not start", error.message);
       app.quit();
     }
   });

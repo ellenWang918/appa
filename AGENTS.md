@@ -1,6 +1,8 @@
 # Project instructions
 
-AI Goal Calendar is a Windows-first Electron desktop app, published as `ellenWang918/ai-goal-calendar` under the MIT license. The existing Evening Planner interface is the visual baseline. Product rules are recorded in `docs/product.md`; runtime and storage behavior are in `docs/desktop.md`.
+Appa is a Windows-first Electron desktop app, published as `ellenWang918/ai-goal-calendar` under the MIT license. The existing Evening Planner interface is the visual baseline. Product rules are recorded in `docs/product.md`; runtime and storage behavior are in `docs/desktop.md`.
+
+The user renamed the product to Appa on 2026-10-13. Use Appa for display names and new build artifacts. Preserve the repository URL, original installer app ID, `%APPDATA%/AI Goal Calendar` profile, session partition and storage keys for compatibility with existing installations.
 
 Each person connects their own eligible ChatGPT account through the system browser. Keep tokens in the main process and out of logs, frontend code, backups and source control. Desktop starts with an empty calendar and the computer's timezone, and retains its storage origin across restarts. The browser preview remains a separate development tool.
 

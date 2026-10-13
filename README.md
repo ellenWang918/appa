@@ -1,20 +1,22 @@
-# AI Goal Calendar
+# Appa
 
-A local, open-source Windows desktop planner that turns intentions into small, achievable steps. Use your own eligible ChatGPT account for AI planning, or write a plan yourself and work offline.
+A personal planning assistant that turns intentions into small, achievable steps. Appa is a local, open-source Windows desktop app. Use your own eligible ChatGPT account for AI planning, or write a plan yourself and work offline.
 
 **Early release · Windows x64 · MIT license**
 
-![AI Goal Calendar running on Windows](docs/screenshots/desktop.png)
+![Appa running on Windows](docs/screenshots/desktop.jpg)
 
 ## Get the desktop app
 
 Download the Windows preview installer from [GitHub Releases](https://github.com/ellenWang918/ai-goal-calendar/releases). End users do not need Node.js when using the installer.
 
+Appa was previously named AI Goal Calendar. Version 0.1.0 retains that name in its published installer; builds from the current source use Appa. The repository URL stays the same, and existing local goals, drafts and settings are preserved.
+
 The first release is unsigned and has no automatic updater. Windows may show an unrecognized-publisher warning; code signing is planned for a later release. Download only from this repository's Releases page.
 
 ## Start with one goal
 
-1. Open AI Goal Calendar. A new installation starts with an empty calendar and your computer's timezone.
+1. Open Appa. A new installation starts with an empty calendar and your computer's timezone.
 2. Open **Settings & backup** to choose your daily time budget and available hours. The initial budget is 60 minutes within 18:00–21:00.
 3. Choose **Plan a goal**. Describe your intention, connect your own ChatGPT account, and select **Create an AI plan**. You can also choose **Write a plan myself** without signing in.
 4. Review and edit the proposed steps. Choose **Add to active goals** or **Save in Later**, then approve.

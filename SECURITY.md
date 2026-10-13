@@ -2,7 +2,7 @@
 
 ## Local application
 
-AI Goal Calendar is a local desktop application. Calendar data is saved in the app's Chromium profile on your computer. Export/import backups contain goal and progress data; keep them private. There is no maintainer-operated AI server, account database, analytics, or cloud synchronization.
+Appa is a local desktop application. Calendar data is saved in the app's Chromium profile on your computer. Export/import backups contain goal and progress data; keep them private. There is no maintainer-operated AI server, account database, analytics, or cloud synchronization.
 
 When you request AI planning, the intention and any clarification you entered are sent directly from the local main process to OpenAI. The rest of your saved calendar is not included. Requests use `store: false`. OpenAI's own processing and retention policies still apply.
 

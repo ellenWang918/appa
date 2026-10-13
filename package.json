@@ -1,5 +1,5 @@
 {
-  "name": "ai-goal-calendar",
+  "name": "appa",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -27,7 +27,7 @@
     "react-dom": "19.2.0",
     "vite": "6.4.2"
   },
-  "description": "A local, open-source goal calendar with optional planning through your own ChatGPT account.",
+  "description": "Appa, a local personal planning assistant with optional AI planning through your own ChatGPT account.",
   "main": "desktop/main.mjs",
   "license": "MIT",
   "author": "ZiWang",
