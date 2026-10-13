@@ -1,15 +1,30 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, CSSProperties } from "react";
+import {
+  MiniCalendar,
+  MonthCalendar,
+  clockTime,
+  monthStart,
+  shiftMonth,
+  weekNumber,
+} from "./CalendarViews";
+import type { CalendarView } from "./CalendarViews";
 import type { CalendarState, Slot, Task } from "./types";
 import { errorMessage } from "./errors";
 import {
-  ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  CalendarDots,
+  CaretLeft,
+  CaretRight,
   Check,
   CheckCircle,
   Clock,
   GearSix,
   LockSimple,
+  Laptop,
+  List,
+  Plus,
   Sparkle,
   X,
 } from "@phosphor-icons/react";
@@ -76,7 +91,13 @@ export function App() {
     [state, setState] = useState(initial.state),
     [saveError, setSaveError] = useState(initial.error),
     [error, setError] = useState(""),
-    [view, setView] = useState("week"),
+    [view, setView] = useState<CalendarView>("week"),
+    [miniMonth, setMiniMonth] = useState(() =>
+      monthStart(dayFor(initial.state.settings.timezone)),
+    ),
+    [showWeekends, setShowWeekends] = useState(false),
+    [detailsOpen, setDetailsOpen] = useState(false),
+    [composer, setComposer] = useState(""),
     [week, setWeek] = useState(() =>
       cal.monday(dayFor(initial.state.settings.timezone)),
     ),
@@ -98,6 +119,7 @@ export function App() {
     [notice, setNotice] = useState(""),
     [today, setToday] = useState(() => dayFor(initial.state.settings.timezone));
   const fileInput = useRef<HTMLInputElement>(null),
+    weekScroll = useRef<HTMLDivElement>(null),
     [pendingImport, setPendingImport] = useState<CalendarState | null>(null),
     [persistBlocked, setPersistBlocked] = useState(!!initial.error),
     todayRef = useRef(today);
@@ -151,7 +173,62 @@ export function App() {
   }
   const active = state.goals.filter((goal) => goal.status === "active"),
     later = state.goals.filter((goal) => goal.status === "later");
-  const days = Array.from({ length: 7 }, (_, i) => cal.addDays(week, i));
+  const weekendWork = state.tasks.some(
+    (task) =>
+      ["pending", "done"].includes(task.status) &&
+      cal.goalFor(state, task)?.status === "active" &&
+      task.date >= cal.addDays(week, 5) &&
+      task.date <= cal.addDays(week, 6),
+  );
+  const weekendSelected =
+    selectedDay >= cal.addDays(week, 5) && selectedDay <= cal.addDays(week, 6);
+  const days = Array.from(
+    { length: showWeekends || weekendWork || weekendSelected ? 7 : 5 },
+    (_, i) => cal.addDays(week, i),
+  );
+  const weekSlots = days.map((date) => ({
+    date,
+    slots: cal.slotsFor(state, date),
+  }));
+  const shortestSlot = weekSlots
+    .flatMap(({ slots }) => slots)
+    .reduce((minutes, slot) => Math.min(minutes, slot.duration), 60);
+  // Give short, consecutive steps enough space for a readable single line.
+  const hourHeight = Math.max(70, Math.ceil((24 * 60) / shortestSlot));
+  const timelineStart = Math.min(
+    9 * 60,
+    Math.floor(state.settings.start / 60) * 60,
+  );
+  const timelineEnd = Math.max(
+    19 * 60,
+    Math.ceil(state.settings.end / 60) * 60,
+  );
+  const timelineRange = timelineEnd - timelineStart;
+  const hours = Array.from(
+    { length: timelineRange / 60 + 1 },
+    (_, i) => timelineStart + i * 60,
+  );
+  const gridStyle = {
+    "--day-count": days.length,
+    "--hour-count": timelineRange / 60,
+    "--hour-height": `${hourHeight}px`,
+  } as CSSProperties;
+  const earliest = state.tasks
+    .filter(
+      (task) =>
+        task.date >= week &&
+        task.date <= cal.addDays(week, 6) &&
+        task.status === "pending" &&
+        cal.goalFor(state, task)?.status === "active",
+    )
+    .reduce((start, task) => Math.min(start, task.start), state.settings.start);
+  useEffect(() => {
+    if (view !== "week" || !weekScroll.current) return;
+    weekScroll.current.scrollTop = Math.max(
+      0,
+      ((earliest - timelineStart - 60) / 60) * hourHeight,
+    );
+  }, [week, view, timelineStart, earliest, hourHeight]);
   const daySlots = cal.slotsFor(state, selectedDay),
     plannedMinutes = cal.plannedMinutesFor(state, selectedDay),
     remaining = daySlots
@@ -194,7 +271,31 @@ export function App() {
   function goToday() {
     setSelectedDay(today);
     setWeek(cal.monday(today));
+    setMiniMonth(monthStart(today));
     setSelectedTask(null);
+  }
+  function selectDate(date: string) {
+    setSelectedDay(date);
+    setWeek(cal.monday(date));
+    setMiniMonth(monthStart(date));
+    setSelectedTask(null);
+  }
+  function navigate(direction: number) {
+    const date =
+      view === "month"
+        ? shiftMonth(selectedDay, direction)
+        : cal.addDays(
+            view === "week" ? week : selectedDay,
+            direction * (view === "week" ? 7 : 1),
+          );
+    selectDate(date);
+  }
+  function openSlot(slot: Slot) {
+    selectDate(slot.date);
+    setSelectedTask(
+      slot.chosen?.id || (slot.tasks.length === 1 ? slot.tasks[0].id : null),
+    );
+    setDetailsOpen(true);
   }
   async function readImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -213,68 +314,85 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a
-          className="brand"
-          href="#"
-          onClick={(event) => {
-            event.preventDefault();
-            goToday();
-          }}
-        >
-          Appa
-        </a>
-        <nav className="view-tabs" aria-label="Calendar view">
-          <button
-            className={view === "today" ? "selected" : ""}
-            onClick={() => {
-              setView("today");
-              goToday();
-            }}
-          >
-            Today
-          </button>
-          <button
-            className={view === "week" ? "selected" : ""}
-            onClick={() => setView("week")}
-          >
-            Week
-          </button>
-        </nav>
-        <div className="week-navigation">
+        <div className="mobile-tools">
           <button
             className="icon-button"
-            aria-label="Previous week"
-            onClick={() => {
-              const next = cal.addDays(week, -7);
-              setWeek(next);
-              setSelectedDay(next);
-              setSelectedTask(null);
-            }}
+            aria-label="Your goals"
+            onClick={() => setModal("goals")}
           >
-            <ArrowLeft size={16} />
+            <List size={18} />
           </button>
-          <span>
-            {view === "week"
-              ? `${cal.dateLabel(week, { day: "numeric" })} – ${cal.dateLabel(cal.addDays(week, 6), { day: "numeric", month: "long", year: "numeric" })}`
-              : titleDate(today)}
-          </span>
           <button
             className="icon-button"
-            aria-label="Next week"
-            onClick={() => {
-              const next = cal.addDays(week, 7);
-              setWeek(next);
-              setSelectedDay(next);
-              setSelectedTask(null);
-            }}
+            aria-label="Settings & backup"
+            onClick={() => setModal("settings")}
           >
-            <ArrowRight size={16} />
+            <GearSix size={18} />
           </button>
         </div>
-        <button className="plan-button" onClick={() => setModal("planner")}>
-          <Sparkle size={19} weight="fill" />
-          Plan a goal
-        </button>
+        <div className="calendar-title">
+          <h1>
+            {cal.dateLabel(selectedDay, { month: "long", year: "numeric" })}
+          </h1>
+          <span>
+            {view === "week"
+              ? `Week ${weekNumber(week)}`
+              : view === "day"
+                ? cal.dateLabel(selectedDay, { weekday: "long" })
+                : "Month view"}
+          </span>
+        </div>
+        <div className="calendar-controls">
+          <div className="week-navigation">
+            <button
+              className="icon-button"
+              aria-label={`Previous ${view}`}
+              onClick={() => navigate(-1)}
+            >
+              <CaretLeft size={15} />
+            </button>
+            <button
+              className="icon-button"
+              aria-label={`Next ${view}`}
+              onClick={() => navigate(1)}
+            >
+              <CaretRight size={15} />
+            </button>
+          </div>
+          <button className="today-button" onClick={goToday}>
+            Today
+          </button>
+          <nav className="view-tabs" aria-label="Calendar view">
+            {(["day", "week", "month"] as const).map((mode) => (
+              <button
+                key={mode}
+                className={view === mode ? "selected" : ""}
+                aria-pressed={view === mode}
+                onClick={() => setView(mode)}
+              >
+                {mode[0].toUpperCase() + mode.slice(1)}
+              </button>
+            ))}
+          </nav>
+          {view === "week" && (
+            <button
+              className="weekend-toggle"
+              aria-label="Show weekends"
+              aria-pressed={days.length === 7}
+              title={
+                weekendWork
+                  ? "This week includes weekend tasks"
+                  : weekendSelected
+                    ? "The selected day is on the weekend"
+                    : "Show or hide weekends"
+              }
+              disabled={weekendWork || weekendSelected}
+              onClick={() => setShowWeekends(!showWeekends)}
+            >
+              {days.length === 7 ? "7 days" : "5 days"}
+            </button>
+          )}
+        </div>
       </header>
       {(error || saveError) && (
         <div className="alert" role="alert">
@@ -316,6 +434,31 @@ export function App() {
       )}
       <div className="workspace">
         <aside className="goals-rail" aria-label="Goals">
+          <a
+            className="brand"
+            href="#"
+            onClick={(event) => {
+              event.preventDefault();
+              goToday();
+            }}
+          >
+            <CalendarDots size={24} weight="fill" />
+            <span>Appa</span>
+          </a>
+          <MiniCalendar
+            month={miniMonth}
+            selectedDay={selectedDay}
+            today={today}
+            onMonth={setMiniMonth}
+            onSelect={selectDate}
+          />
+          <button
+            className="rail-plan-button"
+            onClick={() => setModal("planner")}
+          >
+            <Plus size={15} />
+            Plan a goal
+          </button>
           <div className="goal-group">
             <h2>Active goals</h2>
             {active.length === 0 && (
@@ -337,25 +480,27 @@ export function App() {
               </button>
             ))}
           </div>
-          <div className="goal-group later">
-            <h2>Later</h2>
-            {later.length === 0 && (
-              <p className="muted small">Ideas can wait here.</p>
-            )}
-            {later.map((item) => (
-              <button
-                key={item.id}
-                className="goal-link muted"
-                onClick={() => {
-                  setGoalId(item.id);
-                  setModal("goal");
-                }}
-              >
-                <Dot color="gray" />
-                <span>{item.name}</span>
-              </button>
-            ))}
-          </div>
+          {later.length > 0 && (
+            <div className="goal-group later">
+              <h2>Later</h2>
+              {later.length === 0 && (
+                <p className="muted small">Ideas can wait here.</p>
+              )}
+              {later.map((item) => (
+                <button
+                  key={item.id}
+                  className="goal-link muted"
+                  onClick={() => {
+                    setGoalId(item.id);
+                    setModal("goal");
+                  }}
+                >
+                  <Dot color="gray" />
+                  <span>{item.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="rail-footer">
             <button
               className="mobile-goals-button"
@@ -386,99 +531,93 @@ export function App() {
                 Return to this week
               </button>
             )}
+            <div className="workspace-identity">
+              <Laptop size={23} />
+              <div>
+                <strong>Local workspace</strong>
+                <span>
+                  {desktop ? "Saved on this computer" : "Saved in this browser"}
+                </span>
+              </div>
+            </div>
           </div>
         </aside>
         <main
           className="calendar-area"
-          aria-label={view === "week" ? "Week calendar" : "Today’s tasks"}
+          aria-label={
+            view === "week"
+              ? "Week calendar"
+              : view === "month"
+                ? "Month calendar"
+                : "Day tasks"
+          }
         >
           {view === "week" ? (
             <div
               key="week"
               className="week-scroll"
+              ref={weekScroll}
               tabIndex={0}
               role="region"
               aria-label="Scroll week calendar"
             >
-              <div className="week-board">
+              <div className="week-board" style={gridStyle}>
                 <div className="day-headers">
                   <div />
                   {days.map((date) => (
                     <button
                       className={`day-header ${date === selectedDay ? "current" : ""}`}
                       key={date}
-                      onClick={() => {
-                        setSelectedDay(date);
-                        setSelectedTask(null);
-                      }}
+                      aria-pressed={date === selectedDay}
+                      onClick={() => selectDate(date)}
                     >
-                      <span>
-                        {cal.dateLabel(date, {
-                          weekday: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                      {date === today && <strong>Today</strong>}
+                      <span>{cal.dateLabel(date, { weekday: "short" })}</span>
+                      <strong>{Number(date.slice(-2))}</strong>
+                      {date === today && <span className="sr-only">Today</span>}
                     </button>
                   ))}
                 </div>
                 <div className="time-grid">
                   <div className="time-gutter">
-                    {Array.from(
-                      {
-                        length:
-                          Math.floor(
-                            (state.settings.end - state.settings.start) / 30,
-                          ) + 1,
-                      },
-                      (_, i) => {
-                        const minute = state.settings.start + i * 30;
-                        return (
-                          <span
-                            key={minute}
-                            style={{
-                              top: `${((i * 30) / (state.settings.end - state.settings.start)) * 100}%`,
-                            }}
-                          >
-                            {cal.timeLabel(minute)}
-                          </span>
-                        );
-                      },
-                    )}
+                    {hours.map((minute) => {
+                      return (
+                        <span
+                          key={minute}
+                          style={{
+                            top: `${((minute - timelineStart) / timelineRange) * 100}%`,
+                          }}
+                        >
+                          {clockTime(minute)}
+                        </span>
+                      );
+                    })}
                   </div>
-                  {days.map((date) => (
+                  {weekSlots.map(({ date, slots }) => (
                     <div className="day-column" key={date}>
-                      {Array.from(
-                        {
-                          length:
-                            Math.floor(
-                              (state.settings.end - state.settings.start) / 30,
-                            ) + 1,
-                        },
-                        (_, i) => (
-                          <div
-                            className="grid-line"
-                            key={i}
-                            style={{
-                              top: `${((i * 30) / (state.settings.end - state.settings.start)) * 100}%`,
-                            }}
-                          />
-                        ),
-                      )}
-                      {cal.slotsFor(state, date).map((slot) => (
+                      {hours.map((minute) => (
+                        <div
+                          className="grid-line"
+                          key={minute}
+                          style={{
+                            top: `${((minute - timelineStart) / timelineRange) * 100}%`,
+                          }}
+                        />
+                      ))}
+                      {slots.map((slot, index) => (
                         <CalendarEvent
                           key={slot.id}
                           slot={slot}
                           state={state}
-                          onClick={() => {
-                            setSelectedDay(date);
-                            setSelectedTask(
-                              slot.chosen?.id ||
-                                (slot.tasks.length === 1
-                                  ? slot.tasks[0].id
-                                  : null),
-                            );
-                          }}
+                          timelineStart={timelineStart}
+                          timelineEnd={timelineEnd}
+                          available={
+                            (slots[index + 1]?.start ?? timelineEnd) -
+                            slot.start
+                          }
+                          selected={slot.tasks.some(
+                            (task) => task.id === selectedTask,
+                          )}
+                          onClick={() => openSlot(slot)}
                         />
                       ))}
                     </div>
@@ -486,27 +625,33 @@ export function App() {
                 </div>
               </div>
             </div>
+          ) : view === "month" ? (
+            <MonthCalendar
+              month={monthStart(selectedDay)}
+              state={state}
+              selectedDay={selectedDay}
+              today={today}
+              onSelect={(date) => {
+                selectDate(date);
+                setView("day");
+              }}
+              onSlot={openSlot}
+            />
           ) : (
-            <div className="today-agenda" key="today">
+            <div className="today-agenda" key="day">
               <div className="agenda-heading">
                 <div>
-                  <span className="eyebrow">A LITTLE PROGRESS, EVERY DAY</span>
-                  <h1>{titleDate(today)}</h1>
+                  <span className="eyebrow">YOUR DAY, AT A GLANCE</span>
+                  <h1>{titleDate(selectedDay)}</h1>
                   <p className="muted">One small step is enough to begin.</p>
                 </div>
               </div>
-              {cal.slotsFor(state, today).length ? (
-                cal.slotsFor(state, today).map((slot) => (
+              {daySlots.length ? (
+                daySlots.map((slot) => (
                   <button
                     key={slot.id}
                     className={`agenda-card ${cal.goalFor(state, slot.tasks[0])!.color}`}
-                    onClick={() => {
-                      setSelectedDay(today);
-                      setSelectedTask(
-                        slot.chosen?.id ||
-                          (slot.tasks.length === 1 ? slot.tasks[0].id : null),
-                      );
-                    }}
+                    onClick={() => openSlot(slot)}
                   >
                     <span className="agenda-time">
                       {cal.timeLabel(slot.start)}
@@ -542,189 +687,220 @@ export function App() {
               )}
             </div>
           )}
+          <form
+            className="planning-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (composer.trim()) {
+                setState((previous) => ({
+                  ...previous,
+                  draft: { intention: composer.trim(), plan: null },
+                }));
+                setComposer("");
+              }
+              setModal("planner");
+            }}
+          >
+            <CalendarDots size={23} weight="fill" />
+            <input
+              aria-label="Describe a goal"
+              value={composer}
+              maxLength={3600}
+              placeholder="Tell Appa what matters…"
+              onChange={(event) => setComposer(event.target.value)}
+            />
+            <button aria-label="Plan this goal" type="submit">
+              <ArrowUp size={19} weight="bold" />
+            </button>
+          </form>
         </main>
-        <aside className="day-panel" aria-label="Selected day">
-          <section className="day-summary">
-            <h2>
-              {selectedDay === today ? "Today · " : ""}
-              {titleDate(selectedDay)}
-            </h2>
-            <p>
-              <strong>{plannedMinutes} min</strong> planned
-            </p>
-          </section>
-          <section className="next-step">
-            <p className="section-label">
-              {selectedDay === today ? "Next step" : "Scheduled step"}
-            </p>
-            {nextTask ? (
-              <>
-                <h1>{nextTask.title}</h1>
-                <p className="task-goal">
-                  <Dot color={cal.goalFor(state, nextTask)!.color} />
-                  {cal.goalFor(state, nextTask)!.name}
+        {detailsOpen && (
+          <Dialog
+            title={titleDate(selectedDay)}
+            onClose={() => setDetailsOpen(false)}
+          >
+            <aside className="day-panel" aria-label="Selected day">
+              <section className="day-summary">
+                <p>
+                  <strong>{plannedMinutes} min</strong> planned
                 </p>
-                <p className="task-duration">
-                  <Clock size={24} />
-                  {nextTask.minutes} min
+              </section>
+              <section className="next-step">
+                <p className="section-label">
+                  {selectedDay === today ? "Next step" : "Scheduled step"}
                 </p>
-                <button
-                  className="primary full"
-                  disabled={
-                    selectedDay !== today || cal.isBlocked(state, nextTask)
-                  }
-                  onClick={() => complete(nextTask)}
-                >
-                  {cal.isBlocked(state, nextTask) ? (
-                    <>
-                      <LockSimple size={17} />
-                      Finish the prerequisite first
-                    </>
-                  ) : selectedDay !== today ? (
-                    "Available on this day"
-                  ) : (
-                    "Mark complete"
-                  )}
-                </button>
-                {cal.isBlocked(state, nextTask) && (
-                  <p className="small muted">
-                    After:{" "}
-                    {nextTask.dependsOn
-                      .map(
-                        (key) => state.tasks.find((t) => t.id === key)?.title,
-                      )
-                      .join(", ")}
+                {nextTask ? (
+                  <>
+                    <h1>{nextTask.title}</h1>
+                    <p className="task-goal">
+                      <Dot color={cal.goalFor(state, nextTask)!.color} />
+                      {cal.goalFor(state, nextTask)!.name}
+                    </p>
+                    <p className="task-duration">
+                      <Clock size={24} />
+                      {nextTask.minutes} min
+                    </p>
+                    <button
+                      className="primary full"
+                      disabled={
+                        selectedDay !== today || cal.isBlocked(state, nextTask)
+                      }
+                      onClick={() => complete(nextTask)}
+                    >
+                      {cal.isBlocked(state, nextTask) ? (
+                        <>
+                          <LockSimple size={17} />
+                          Finish the prerequisite first
+                        </>
+                      ) : selectedDay !== today ? (
+                        "Available on this day"
+                      ) : (
+                        "Mark complete"
+                      )}
+                    </button>
+                    {cal.isBlocked(state, nextTask) && (
+                      <p className="small muted">
+                        After:{" "}
+                        {nextTask.dependsOn
+                          .map(
+                            (key) =>
+                              state.tasks.find((t) => t.id === key)?.title,
+                          )
+                          .join(", ")}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <h1>
+                      {shared.length
+                        ? "Make room for one thing."
+                        : daySlots.length && daySlots.every((s) => s.done)
+                          ? "You made progress."
+                          : "A little breathing room."}
+                    </h1>
+                    <p className="muted leading">
+                      {shared.length
+                        ? "Choose an activity below to make it your next step."
+                        : daySlots.length
+                          ? "Your planned steps for this day are complete."
+                          : "There are no steps scheduled for this day."}
+                    </p>
+                    {!active.length && (
+                      <button
+                        className="primary full"
+                        onClick={() => setModal("planner")}
+                      >
+                        Plan your first goal
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
+              {shared.map((slot) => (
+                <section className="shared-section" key={slot.id}>
+                  <h2>Choose one ({cal.timeLabel(slot.start)})</h2>
+                  <p className="muted">
+                    {slot.duration} min {slot.chosen ? "planned" : "reserved"}{" "}
+                    <span className="separator">·</span>{" "}
+                    <span
+                      className={
+                        cal.goalFor(state, slot.tasks[0])!.color + "-text"
+                      }
+                    >
+                      {new Set(slot.tasks.map((t) => t.goalId)).size > 1
+                        ? "Multiple goals"
+                        : cal.goalFor(state, slot.tasks[0])!.name}
+                    </span>
                   </p>
-                )}
-              </>
-            ) : (
-              <>
-                <h1>
-                  {shared.length
-                    ? "Make room for one thing."
-                    : daySlots.length && daySlots.every((s) => s.done)
-                      ? "You made progress."
-                      : "A little breathing room."}
-                </h1>
-                <p className="muted leading">
-                  {shared.length
-                    ? "Choose an activity below to make it your next step."
-                    : daySlots.length
-                      ? "Your planned steps for this day are complete."
-                      : "There are no steps scheduled for this day."}
-                </p>
-                {!active.length && (
-                  <button
-                    className="primary full"
-                    onClick={() => setModal("planner")}
-                  >
-                    Plan your first goal
-                  </button>
-                )}
-              </>
-            )}
-          </section>
-          {shared.map((slot) => (
-            <section className="shared-section" key={slot.id}>
-              <h2>Choose one ({cal.timeLabel(slot.start)})</h2>
-              <p className="muted">
-                {slot.duration} min {slot.chosen ? "planned" : "reserved"}{" "}
-                <span className="separator">·</span>{" "}
-                <span
-                  className={cal.goalFor(state, slot.tasks[0])!.color + "-text"}
-                >
-                  {new Set(slot.tasks.map((t) => t.goalId)).size > 1
-                    ? "Multiple goals"
-                    : cal.goalFor(state, slot.tasks[0])!.name}
-                </span>
-              </p>
-              <div className="activity-options">
-                {slot.tasks.map((task) => (
-                  <label
-                    className={`activity-option ${cal.isBlocked(state, task) ? "disabled" : ""}`}
-                    key={task.id}
-                  >
-                    <input
-                      type="radio"
-                      name={slot.id}
-                      checked={slot.chosen?.id === task.id}
-                      disabled={cal.isBlocked(state, task)}
-                      onChange={() => {
-                        change((previous) =>
-                          cal.selectChoice(
-                            previous,
-                            selectedDay,
-                            slot.id,
-                            task.id,
-                          ),
-                        );
+                  <div className="activity-options">
+                    {slot.tasks.map((task) => (
+                      <label
+                        className={`activity-option ${cal.isBlocked(state, task) ? "disabled" : ""}`}
+                        key={task.id}
+                      >
+                        <input
+                          type="radio"
+                          name={slot.id}
+                          checked={slot.chosen?.id === task.id}
+                          disabled={cal.isBlocked(state, task)}
+                          onChange={() => {
+                            change((previous) =>
+                              cal.selectChoice(
+                                previous,
+                                selectedDay,
+                                slot.id,
+                                task.id,
+                              ),
+                            );
+                            setSelectedTask(task.id);
+                          }}
+                        />
+                        <span>
+                          {task.title}
+                          <small>
+                            {new Set(slot.tasks.map((t) => t.goalId)).size > 1
+                              ? cal.goalFor(state, task)!.name + " · "
+                              : ""}
+                            {task.minutes} min
+                            {cal.isBlocked(state, task)
+                              ? " · prerequisite unfinished"
+                              : ""}
+                          </small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {slot.chosen &&
+                    selectedDay === today &&
+                    nextTask?.id !== slot.chosen.id && (
+                      <button
+                        className="secondary full"
+                        onClick={() => {
+                          if (slot.chosen) complete(slot.chosen);
+                        }}
+                      >
+                        Complete {slot.chosen.title}
+                      </button>
+                    )}
+                </section>
+              ))}
+              {future.length > 0 && (
+                <section className="future-section">
+                  <p className="section-label">
+                    Later steps <span className="muted">(scheduled)</span>
+                  </p>
+                  {future.map((task) => (
+                    <button
+                      className="future-task"
+                      key={task.id}
+                      onClick={() => {
+                        selectDate(task.date);
                         setSelectedTask(task.id);
                       }}
-                    />
-                    <span>
-                      {task.title}
-                      <small>
-                        {new Set(slot.tasks.map((t) => t.goalId)).size > 1
-                          ? cal.goalFor(state, task)!.name + " · "
-                          : ""}
-                        {task.minutes} min
-                        {cal.isBlocked(state, task)
-                          ? " · prerequisite unfinished"
-                          : ""}
-                      </small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {slot.chosen &&
-                selectedDay === today &&
-                nextTask?.id !== slot.chosen.id && (
-                  <button
-                    className="secondary full"
-                    onClick={() => {
-                      if (slot.chosen) complete(slot.chosen);
-                    }}
-                  >
-                    Complete {slot.chosen.title}
-                  </button>
-                )}
-            </section>
-          ))}
-          {future.length > 0 && (
-            <section className="future-section">
-              <p className="section-label">
-                Later steps <span className="muted">(scheduled)</span>
-              </p>
-              {future.map((task) => (
-                <button
-                  className="future-task"
-                  key={task.id}
-                  onClick={() => {
-                    setSelectedDay(task.date);
-                    setWeek(cal.monday(task.date));
-                    setSelectedTask(task.id);
-                  }}
-                >
-                  <Dot color={cal.goalFor(state, task)!.color} />
-                  <span>
-                    <strong>{task.title}</strong>
-                    <small>
-                      {cal
-                        .dateLabel(task.date, {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                        })
-                        .replace(",", "")}{" "}
-                      · {task.minutes} min
-                    </small>
-                  </span>
-                  {cal.isBlocked(state, task) && <LockSimple size={15} />}
-                </button>
-              ))}
-            </section>
-          )}
-        </aside>
+                    >
+                      <Dot color={cal.goalFor(state, task)!.color} />
+                      <span>
+                        <strong>{task.title}</strong>
+                        <small>
+                          {cal
+                            .dateLabel(task.date, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                            })
+                            .replace(",", "")}{" "}
+                          · {task.minutes} min
+                        </small>
+                      </span>
+                      {cal.isBlocked(state, task) && <LockSimple size={15} />}
+                    </button>
+                  ))}
+                </section>
+              )}
+            </aside>
+          </Dialog>
+        )}
       </div>
       {state.undo && state.undo.label !== "Recovery" && (
         <div className="undo-toast" role="status">
@@ -950,42 +1126,47 @@ function CalendarEvent({
   slot,
   state,
   onClick,
+  timelineStart,
+  timelineEnd,
+  available,
+  selected,
 }: {
   slot: Slot;
   state: CalendarState;
   onClick: () => void;
+  timelineStart: number;
+  timelineEnd: number;
+  available: number;
+  selected: boolean;
 }) {
   const task = slot.chosen || slot.tasks[0],
     goal = cal.goalFor(state, task),
     shared = slot.tasks.length > 1 && !slot.chosen,
     blocked = cal.isBlocked(state, task);
-  const next = cal
-      .slotsFor(state, slot.date)
-      .find((other) => other.start > slot.start),
-    available = (next?.start || state.settings.end) - slot.start,
-    range = state.settings.end - state.settings.start;
+  const range = timelineEnd - timelineStart;
   if (!goal) return null;
   return (
     <button
-      className={`calendar-event ${goal.color} ${shared ? "shared" : ""} ${slot.done ? "done" : ""} ${blocked ? "blocked" : ""} ${available < 28 ? "compact" : ""}`}
+      className={`calendar-event ${goal.color} ${shared ? "shared" : ""} ${slot.done ? "done" : ""} ${blocked ? "blocked" : ""} ${slot.duration < 40 ? "compact" : ""} ${selected ? "selected" : ""}`}
       style={{
-        top: `${((slot.start - state.settings.start) / range) * 100}%`,
-        height: `calc(${(slot.duration / range) * 100}% - 10px)`,
-        minHeight: `min(${shared ? 134 : blocked ? 128 : 125}px, calc(${(available / range) * 100}% - 10px))`,
-        maxHeight: `calc(${(available / range) * 100}% - 10px)`,
+        top: `${((slot.start - timelineStart) / range) * 100}%`,
+        height: `min(max(18px, calc(${(slot.duration / range) * 100}% - 2px)), calc(${(available / range) * 100}% - 1px))`,
+        maxHeight: `calc(${(available / range) * 100}% - 1px)`,
       }}
       title={`${shared ? "Choose one" : task.title} · ${goal.name}`}
       onClick={onClick}
       aria-label={`${shared ? "Choose one" : task.title}, ${slot.duration} minutes, ${cal.timeLabel(slot.start)}${blocked ? ", prerequisite unfinished" : ""}`}
     >
-      {blocked && <LockSimple className="event-lock" size={14} />}
       <strong>
         {slot.done && <Check size={13} />}
-        {!blocked && !slot.done && <Dot color={goal.color} />}
+        {blocked && <LockSimple size={11} />}
         {shared ? "Choose one" : task.title}
+        {slot.duration < 40 && (
+          <span className="event-start">{clockTime(slot.start)}</span>
+        )}
       </strong>
       <span className="event-minutes">
-        {slot.duration} min{shared ? " reserved" : ""}
+        {clockTime(slot.start)} – {clockTime(slot.start + slot.duration)}
       </span>
       {shared ? (
         <span className="event-options">
@@ -1009,7 +1190,7 @@ function Empty({
       <Sparkle size={32} />
       <h2>
         {hasGoals
-          ? "Nothing on your list today."
+          ? "Nothing scheduled for this day."
           : "What would you like to make progress on?"}
       </h2>
       <p className="muted">

@@ -1,6 +1,6 @@
 # Project instructions
 
-Appa is a Windows-first Electron desktop app, published as `ellenWang918/appa` under the MIT license. The existing Evening Planner interface is the visual baseline. Product rules are recorded in `docs/product.md`; runtime and storage behavior are in `docs/desktop.md`.
+Appa is a Windows-first Electron desktop app, published as `ellenWang918/appa` under the MIT license. The user approved a monochrome calendar reference on 2026-10-14: a left month navigator, full-width calendar, compact grey task blocks and a floating goal composer with a red action. Preserve this visual baseline and Appa's identity. Read `docs/product.md` for view and scheduling behavior and `docs/desktop.md` for runtime and storage behavior.
 
 The user chose TypeScript on 2026-10-13. Keep application code in strict TypeScript: React `.tsx`, shared modules and services `.ts`, and the sandboxed preload `.cts`. Shared domain and API types live in `src/types.ts`. Desktop runs compiled files from `dist/runtime`; preserve the static-hosting template files in their existing formats.
 

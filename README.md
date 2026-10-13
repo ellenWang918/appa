@@ -4,7 +4,9 @@ A personal planning assistant that turns intentions into small, achievable steps
 
 **Early release · Windows x64 · MIT license**
 
-![Appa running on Windows](docs/screenshots/desktop.jpg)
+![Appa calendar interface with example tasks](docs/screenshots/calendar.png)
+
+The screenshot shows the current source with example tasks. New desktop installations start empty. Installers on GitHub Releases are published separately from source updates.
 
 ## Get the desktop app
 
@@ -17,10 +19,10 @@ The first release is unsigned and has no automatic updater. Windows may show an 
 ## Start with one goal
 
 1. Open Appa. A new installation starts with an empty calendar and your computer's timezone.
-2. Available hours start at 18:00–21:00. You can change them anytime in **Settings & backup**.
-3. Choose **Plan a goal**. Describe your intention, connect your own ChatGPT account, and select **Create an AI plan**. You can also choose **Write a plan myself** without signing in.
+2. Available hours start at 18:00–21:00. You can change them anytime in **Settings & backup**. Scheduling uses these hours without a separate daily budget.
+3. Describe your intention in the bottom input and submit it, or choose **Plan a goal**. In the planner, connect your own ChatGPT account and select **Create an AI plan**, or choose **Write a plan myself** without signing in.
 4. Review and edit the proposed steps. Choose **Add to active goals** or **Save in Later**, then approve.
-5. Use **Today** to find the next action. When a slot offers alternatives, choose one. Mark work complete only when you finish it.
+5. Use **Today** to return to the current date, then select a task for its details. When a slot offers alternatives, choose one. Mark work complete only when you finish it.
 
 Open a saved goal in **Later** and choose **Make this goal active** whenever you are ready. More than two goals can be active; scheduling fits within your available hours.
 
@@ -36,12 +38,17 @@ Live account consent and real inference require an eligible user's authorization
 
 ## Calendar behavior
 
-- Today and Week views use the same local calendar.
-- Tasks aim at 5–25 minutes; genuine prerequisites preserve order.
+- Day, Week and Month views use the same local calendar. Navigate dates with the left month picker or the header arrows; **Today** returns to the current date.
+- Week shows weekdays by default and automatically includes weekends when selected or when they contain scheduled work. Select **5 days** to show the full week.
+- Describe an intention in the floating input to open the planner. Tasks are scheduled only after approval.
+- Select a task to open its details, choose an activity in a shared slot, or mark it complete. The selected task keeps its outline after the details close.
+- Tasks aim at 5–25 minutes; genuine prerequisites preserve order. Week rows expand for short steps so consecutive five-minute tasks remain readable.
 - Shared slots reserve the longest alternative until you select one, then use that activity's duration. Selection alone does not complete work.
 - Completing a shared choice skips competing recurring occurrences for that slot. Unchosen project work stays pending, and future recurring sessions keep their normal cadence.
 - Returning after missed days moves unfinished project work in dependency order, consolidates overdue repeats, and shows a recovery summary with Review and Undo.
 - Undo covers the latest committed change in the current page session. Restarting or reloading begins a new undo session.
+
+The interface uses a light grey calendar, a left month navigator and a floating goal input. In the browser preview, narrow screens show compact goal/settings controls; Day and Month fit the screen while Week can scroll horizontally.
 
 ## Your data
 
@@ -71,6 +78,18 @@ The installer is written to `release/`. `npm run desktop:pack` creates an unpack
 For interface development, `npm run dev -- --host 127.0.0.1 --port 4173 --strictPort` opens a separate browser preview. The production desktop app uses bundled assets and a private local server; no hosted website is required. The static hosting template files are retained for compatibility but are not the desktop runtime.
 
 Application code uses strict TypeScript: React components in `.tsx`, scheduling and services in `.ts`, and Electron's sandboxed preload in `.cts`. Shared domain and API types are defined in `src/types.ts`. Run `npm run typecheck` to check the interface and runtime; production builds require this check to pass. Runtime code compiles into `dist/runtime/`, while Vite builds the interface into `dist/client/`. Electron and the automated tests execute the compiled runtime without a TypeScript loader.
+
+## Code structure
+
+| Location | Responsibility |
+| --- | --- |
+| `src/App.tsx`, `src/CalendarViews.tsx` | React calendar views, date navigation and goal input |
+| `src/Dialogs.tsx`, `src/ui.tsx` | Planning, settings, goal details and shared controls |
+| `src/calendar.ts`, `src/types.ts` | Scheduling, recurrence, recovery, backup validation and shared TypeScript contracts |
+| `src/styles.css` | Calendar layout, colours and responsive styles |
+| `server/chatgpt.ts` | Local ChatGPT sign-in and AI planning service |
+| `desktop/` | Electron startup, private local server, preload and external-link policy |
+| `tests/` | Scheduling, backup, desktop security and hosting regression checks |
 
 ## Contribute
 
