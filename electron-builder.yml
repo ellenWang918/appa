@@ -1,0 +1,29 @@
+appId: com.ellenwang918.aigoalcalendar
+productName: AI Goal Calendar
+asar: true
+directories:
+  output: release
+files:
+  - dist/client/**/*
+  - desktop/**/*
+  - server/**/*
+  - src/calendar.mjs
+  - package.json
+  - LICENSE
+  - THIRD_PARTY_NOTICES.md
+  - third-party/**/*
+  - "!**/*.map"
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: AI-Goal-Calendar-${version}-Windows-${arch}-Setup.${ext}
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+publish: null

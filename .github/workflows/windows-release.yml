@@ -1,0 +1,34 @@
+name: Build Windows installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: npm run desktop:dist
+      - name: Compute installer checksum
+        shell: pwsh
+        run: |
+          Get-ChildItem -LiteralPath release -Filter '*-Setup.exe' | ForEach-Object {
+            $digest = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+            "$($digest.Hash.ToLower())  $($_.Name)" | Set-Content -LiteralPath ($_.FullName + '.sha256')
+          }
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ai-goal-calendar-windows
+          path: |
+            release/*-Setup.exe
+            release/*.sha256
+          if-no-files-found: error

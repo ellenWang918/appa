@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.local/
+.env
+.env.*
+!.env.example
+artifacts/
+release/
+qa/
+design-qa.md
+docs/private/
+*.log
+.npmrc
