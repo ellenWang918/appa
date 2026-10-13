@@ -114,7 +114,7 @@ else {
                 label: "Source code and releases",
                 click: () =>
                   openExternal(
-                    "https://github.com/ellenWang918/ai-goal-calendar",
+                    "https://github.com/ellenWang918/appa",
                   ),
               },
               {

@@ -110,7 +110,7 @@ test("External links allow official sign-in/docs and this repository, rejecting 
   for (const value of [
     "https://auth.openai.com/authorize?state=test",
     "https://developers.openai.com/siwc/token-sharing-open-source",
-    "https://github.com/ellenWang918/ai-goal-calendar/releases",
+    "https://github.com/ellenWang918/appa/releases",
   ])
     assert.equal(isAllowedExternal(value), true);
   for (const value of [

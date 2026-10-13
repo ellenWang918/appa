@@ -33,7 +33,7 @@
   "author": "ZiWang",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ellenWang918/ai-goal-calendar.git"
+    "url": "https://github.com/ellenWang918/appa.git"
   },
   "engines": {
     "node": ">=22"

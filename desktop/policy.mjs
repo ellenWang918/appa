@@ -6,8 +6,8 @@ export function isAllowedExternal(value) {
     return (
       ["auth.openai.com", "developers.openai.com"].includes(url.hostname) ||
       (url.hostname === "github.com" &&
-        (url.pathname === "/ellenWang918/ai-goal-calendar" ||
-          url.pathname.startsWith("/ellenWang918/ai-goal-calendar/")))
+        (url.pathname === "/ellenWang918/appa" ||
+          url.pathname.startsWith("/ellenWang918/appa/")))
     );
   } catch {
     return false;

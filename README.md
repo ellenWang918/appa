@@ -8,9 +8,9 @@ A personal planning assistant that turns intentions into small, achievable steps
 
 ## Get the desktop app
 
-Download the Windows preview installer from [GitHub Releases](https://github.com/ellenWang918/ai-goal-calendar/releases). End users do not need Node.js when using the installer.
+Download the Windows preview installer from [GitHub Releases](https://github.com/ellenWang918/appa/releases). End users do not need Node.js when using the installer.
 
-Appa was previously named AI Goal Calendar. Version 0.1.0 retains that name in its published installer; builds from the current source use Appa. The repository URL stays the same, and existing local goals, drafts and settings are preserved.
+Appa was previously named AI Goal Calendar. Version 0.1.0 retains that name in its published installer; builds from the current source use Appa. The repository is now `ellenWang918/appa`, and existing local goals, drafts and settings are preserved.
 
 The first release is unsigned and has no automatic updater. Windows may show an unrecognized-publisher warning; code signing is planned for a later release. Download only from this repository's Releases page.
 
@@ -71,7 +71,7 @@ For interface development, `npm run dev -- --host 127.0.0.1 --port 4173 --strict
 
 ## Contribute
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Report reproducible bugs through [Issues](https://github.com/ellenWang918/ai-goal-calendar/issues). Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities. Never upload tokens, authorization URLs, account registration files, personal backups or private goal text.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report reproducible bugs through [Issues](https://github.com/ellenWang918/appa/issues). Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities. Never upload tokens, authorization URLs, account registration files, personal backups or private goal text.
 
 ## License
 
