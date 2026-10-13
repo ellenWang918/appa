@@ -30,4 +30,6 @@ npm run desktop:dist
 
 The Windows x64 NSIS installer is created in `release/`. `npm run desktop:pack` creates an unpacked application for local checks. Node.js is required for building from source, but is bundled into the installer for end users. The browser development preview remains available through `npm run dev`.
 
+Source code is strict TypeScript. `npm run typecheck` checks the React interface and Node/Electron modules with their respective module-resolution settings. `npm run build:runtime` compiles the desktop entry, local service, scheduling module and sandboxed CommonJS preload into `dist/runtime/`. The package entry is `dist/runtime/desktop/main.js`, and its preload is `dist/runtime/desktop/preload.cjs`. The desktop never executes TypeScript source or requires a development-time TypeScript loader. The existing regression suite runs against the compiled runtime.
+
 The explicit packaging file list excludes private QA images, backups, registration files and development environment files. Only the compiled UI, desktop runtime, AI service, scheduling module, required runtime dependency, and license notices ship.

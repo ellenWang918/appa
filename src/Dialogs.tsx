@@ -1,4 +1,15 @@
 import { useEffect, useState } from "react";
+import type {
+  CalendarState,
+  Goal,
+  Plan,
+  PlannerDraft,
+  PlanTask,
+  ScheduleOptions,
+  SessionResponse,
+  Settings as PlanningSettings,
+} from "./types";
+import { errorMessage } from "./errors";
 import {
   Check,
   CheckCircle,
@@ -9,22 +20,28 @@ import {
   Trash,
   UploadSimple,
 } from "@phosphor-icons/react";
-import { Dialog, Dot } from "./ui.jsx";
-import { api, session } from "./api.mjs";
-import * as cal from "./calendar.mjs";
-import { desktop, localPlace } from "./environment.mjs";
-const minuteInput = (value) =>
+import { Dialog, Dot } from "./ui";
+import { api, session } from "./api";
+import * as cal from "./calendar";
+import { desktop, localPlace } from "./environment";
+const minuteInput = (value: number) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
-const parseMinute = (value) => {
+const parseMinute = (value: string) => {
   const [h, m] = value.split(":").map(Number);
   return h * 60 + m;
 };
 
-export function Planner({ state, onClose, onDraft, onApprove }) {
+interface PlannerProps {
+  state: CalendarState;
+  onClose: () => void;
+  onDraft: (draft: PlannerDraft) => void;
+  onApprove: (plan: Plan, options: ScheduleOptions) => void;
+}
+export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
   const [intention, setIntention] = useState(state.draft?.intention || ""),
-    [plan, setPlan] = useState(state.draft?.plan || null),
+    [plan, setPlan] = useState<Plan | null>(state.draft?.plan || null),
     [answer, setAnswer] = useState(""),
-    [connection, setConnection] = useState(null),
+    [connection, setConnection] = useState<SessionResponse | null>(null),
     [model, setModel] = useState(""),
     [accountId, setAccountId] = useState(""),
     [busy, setBusy] = useState(""),
@@ -43,7 +60,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
           if (alive) setConnection({ ...result, models: data.models });
         }
       } catch (caught) {
-        if (alive) setError(caught.message);
+        if (alive) setError(errorMessage(caught));
       }
     }
     refresh();
@@ -63,7 +80,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
       const result = await api("auth/start", { accountId: accountId || null });
       setLink(result.url);
     } catch (caught) {
-      setError(caught.message);
+      setError(errorMessage(caught));
     } finally {
       setBusy("");
     }
@@ -81,7 +98,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
       setConnection({ ...result, models: data.models });
       setLink("");
     } catch (caught) {
-      setError(caught.message);
+      setError(errorMessage(caught));
     } finally {
       setBusy("");
     }
@@ -95,45 +112,52 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
         : intention;
       const result = await api("plan", {
         intention: text,
-        model: model || connection.models[0]?.id,
+        model: model || connection?.models[0]?.id,
       });
       if (plan?.clarification) setIntention(text);
       setPlan(result.plan);
       setAnswer("");
     } catch (caught) {
-      setError(caught.message);
+      setError(errorMessage(caught));
     } finally {
       setBusy("");
     }
   }
-  function editTask(index, patch) {
-    setPlan((previous) => ({
-      ...previous,
-      tasks: previous.tasks.map((task, i) =>
-        i === index ? { ...task, ...patch } : task,
-      ),
-    }));
+  function editTask(index: number, patch: Partial<PlanTask>) {
+    setPlan(
+      (previous) =>
+        previous && {
+          ...previous,
+          tasks: previous.tasks.map((task, i) =>
+            i === index ? { ...task, ...patch } : task,
+          ),
+        },
+    );
   }
-  function removeTask(index) {
-    setPlan((previous) => ({
-      ...previous,
-      tasks: previous.tasks
-        .filter((_, i) => i !== index)
-        .map((task) => ({
-          ...task,
-          dependsOn: task.dependsOn
-            .filter((d) => d !== index)
-            .map((d) => (d > index ? d - 1 : d)),
-        })),
-    }));
+  function removeTask(index: number) {
+    setPlan(
+      (previous) =>
+        previous && {
+          ...previous,
+          tasks: previous.tasks
+            .filter((_, i) => i !== index)
+            .map((task) => ({
+              ...task,
+              dependsOn: task.dependsOn
+                .filter((d) => d !== index)
+                .map((d) => (d > index ? d - 1 : d)),
+            })),
+        },
+    );
   }
   function approve() {
     try {
+      if (!plan) throw new Error("Create or write a plan first.");
       onApprove(plan, {
         later: placement === "later",
       });
     } catch (caught) {
-      setError(caught.message);
+      setError(errorMessage(caught));
     }
   }
   return (
@@ -204,7 +228,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
                         "Disconnected here. Open ChatGPT Settings to revoke the connection; remote revocation could not be confirmed.",
                       );
                   } catch (caught) {
-                    setError(caught.message);
+                    setError(errorMessage(caught));
                   } finally {
                     setBusy("");
                   }
@@ -220,7 +244,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
                 stays {localPlace}. Your goal text goes to OpenAI when you
                 create a plan.
               </p>
-              {connection?.accounts.length > 0 && (
+              {connection && connection.accounts.length > 0 && (
                 <label className="field small">
                   Account
                   <select
@@ -349,7 +373,10 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
                   onChange={(event) =>
                     setPlan({
                       ...plan,
-                      kind: event.target.value,
+                      kind:
+                        event.target.value === "recurring"
+                          ? "recurring"
+                          : "project",
                       perWeek: event.target.value === "recurring" ? 3 : null,
                       tasks: plan.tasks.map((task) => ({
                         ...task,
@@ -370,7 +397,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
                   type="number"
                   min="1"
                   max="7"
-                  value={plan.perWeek}
+                  value={plan.perWeek ?? ""}
                   onChange={(event) =>
                     setPlan({ ...plan, perWeek: Number(event.target.value) })
                   }
@@ -379,7 +406,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
             )}
             <p className="small muted">
               Aim for 5–25 minutes per step. Larger steps can use up to 60
-              minutes if they fit your daily time.
+              minutes if they fit your available hours.
             </p>
             <div className="editable-tasks">
               {plan.tasks.map((task, index) => (
@@ -477,7 +504,7 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
               <p className="fine-print">
                 {placement === "later"
                   ? "Keep the steps saved without scheduling them yet."
-                  : "Schedule alongside your other active goals, within your daily time budget."}
+                  : "Schedule alongside your other active goals, within your available hours."}
               </p>
             </div>
             <div className="dialog-actions">
@@ -511,7 +538,20 @@ export function Planner({ state, onClose, onDraft, onApprove }) {
   );
 }
 
-export function Settings({ state, onClose, onSave, onExport, onImport }) {
+interface SettingsProps {
+  state: CalendarState;
+  onClose: () => void;
+  onSave: (settings: PlanningSettings) => void;
+  onExport: () => void;
+  onImport: () => void;
+}
+export function Settings({
+  state,
+  onClose,
+  onSave,
+  onExport,
+  onImport,
+}: SettingsProps) {
   const [settings, setSettings] = useState(state.settings),
     [error, setError] = useState("");
   return (
@@ -523,26 +563,11 @@ export function Settings({ state, onClose, onSave, onExport, onImport }) {
           try {
             onSave(settings);
           } catch (caught) {
-            setError(caught.message);
+            setError(errorMessage(caught));
           }
         }}
       >
-        <p className="muted intro">
-          A realistic daily limit keeps your calendar manageable.
-        </p>
-        <label className="field">
-          Daily time budget (minutes)
-          <input
-            type="number"
-            min="5"
-            max="180"
-            value={settings.budget}
-            onChange={(event) =>
-              setSettings({ ...settings, budget: Number(event.target.value) })
-            }
-            required
-          />
-        </label>
+        <p className="muted intro">Choose when Appa can schedule your goals.</p>
         <div className="two-fields">
           <label className="field">
             Available from
@@ -635,7 +660,17 @@ export function Settings({ state, onClose, onSave, onExport, onImport }) {
     </Dialog>
   );
 }
-export function GoalDetails({ goal, state, onClose, onActivate }) {
+export function GoalDetails({
+  goal,
+  state,
+  onClose,
+  onActivate,
+}: {
+  goal: Goal;
+  state: CalendarState;
+  onClose: () => void;
+  onActivate: () => void;
+}) {
   const [error, setError] = useState("");
   const tasks = state.tasks.filter(
     (task) =>
@@ -663,7 +698,7 @@ export function GoalDetails({ goal, state, onClose, onActivate }) {
           <div className="capacity-box goal-activation">
             <p className="small muted">
               Add this saved goal to your calendar alongside your other active
-              goals. Steps will fit within your daily time budget.
+              goals. Steps will fit within your available hours.
             </p>
             <button
               className="primary full"
@@ -671,7 +706,7 @@ export function GoalDetails({ goal, state, onClose, onActivate }) {
                 try {
                   onActivate();
                 } catch (caught) {
-                  setError(caught.message);
+                  setError(errorMessage(caught));
                 }
               }}
             >

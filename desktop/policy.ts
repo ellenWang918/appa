@@ -1,4 +1,4 @@
-export function isAllowedExternal(value) {
+export function isAllowedExternal(value: string) {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password || url.port)

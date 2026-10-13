@@ -1,9 +1,10 @@
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createChatgptService, equalSecret } from "../server/chatgpt.mjs";
+import { createChatgptService, equalSecret } from "../server/chatgpt.js";
+import { errorCode } from "../src/errors.js";
 
-const types = {
+const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -20,6 +21,11 @@ export async function startLocalApp({
   dataRoot,
   deviceSecret,
   requestFetch,
+}: {
+  staticRoot: string;
+  dataRoot: string;
+  deviceSecret: string;
+  requestFetch?: typeof fetch;
 }) {
   if (typeof deviceSecret !== "string" || deviceSecret.length < 32)
     throw new Error("A private desktop session is required.");
@@ -36,7 +42,7 @@ export async function startLocalApp({
       throw new Error("invalid port");
     savedPort = saved.port;
   } catch (error) {
-    if (error.code !== "ENOENT")
+    if (errorCode(error) !== "ENOENT")
       throw new Error(
         "The desktop settings could not be read. Your calendar has been preserved. See the recovery guide.",
       );
@@ -49,7 +55,7 @@ export async function startLocalApp({
   });
   await ai.initialize(path.join(dataRoot, "connection"));
   const root = path.resolve(staticRoot);
-  let origin;
+  let origin: string;
   const server = createServer(async (req, res) => {
     try {
       const cookie = req.headers.cookie
@@ -68,16 +74,18 @@ export async function startLocalApp({
         });
         return res.end("This private app session is unavailable.");
       }
-      if (req.url.startsWith("/api/"))
+      if (req.url?.startsWith("/api/"))
         return await ai.handle(req, res, () => {
           res.writeHead(404);
           res.end();
         });
-      if (!["GET", "HEAD"].includes(req.method)) {
+      if (!["GET", "HEAD"].includes(req.method || "")) {
         res.writeHead(405);
         return res.end();
       }
-      const pathname = decodeURIComponent(new URL(req.url, origin).pathname);
+      const pathname = decodeURIComponent(
+        new URL(req.url || "/", origin).pathname,
+      );
       if (pathname !== "/" && !pathname.startsWith("/assets/")) {
         res.writeHead(404);
         return res.end();
@@ -102,16 +110,20 @@ export async function startLocalApp({
       });
       res.end(req.method === "HEAD" ? undefined : content);
     } catch (error) {
-      if (!res.headersSent) res.writeHead(error.code === "ENOENT" ? 404 : 500);
+      if (!res.headersSent)
+        res.writeHead(errorCode(error) === "ENOENT" ? 404 : 500);
       res.end("The local app could not complete this request.");
     }
   });
   try {
-    await new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(savedPort, "127.0.0.1", resolve);
     });
-    const port = server.address().port;
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("The local app listener could not start.");
+    const port = address.port;
     origin = `http://127.0.0.1:${port}`;
     if (!savedPort)
       await writeFile(configuration, JSON.stringify({ port }), {
@@ -122,7 +134,7 @@ export async function startLocalApp({
     ai.close();
     server.close();
     throw new Error(
-      error.code === "EADDRINUSE"
+      errorCode(error) === "EADDRINUSE"
         ? "Another application is using this calendar's saved local address. Close it and reopen Appa. Your saved goals have been preserved."
         : "The local calendar could not start. Check access to its application data folder.",
     );
@@ -132,7 +144,9 @@ export async function startLocalApp({
     close() {
       ai.close();
       server.closeAllConnections();
-      return new Promise((resolve) => server.close(resolve));
+      return new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
     },
   };
 }

@@ -4,9 +4,9 @@ import { createServer } from "node:http";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { startLocalApp } from "../desktop/local-server.mjs";
-import { isAllowedExternal } from "../desktop/policy.mjs";
-import { createChatgptService } from "../server/chatgpt.mjs";
+import { startLocalApp } from "../dist/runtime/desktop/local-server.js";
+import { isAllowedExternal } from "../dist/runtime/desktop/policy.js";
+import { createChatgptService } from "../dist/runtime/server/chatgpt.js";
 
 const deviceSecret = "test-private-desktop-session-1234567890";
 const deviceCookie = "calendar-device=" + deviceSecret;

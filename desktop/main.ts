@@ -2,8 +2,9 @@ import { app, BrowserWindow, Menu, dialog, shell } from "electron";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { startLocalApp } from "./local-server.mjs";
-import { isAllowedExternal } from "./policy.mjs";
+import { startLocalApp } from "./local-server.js";
+import { isAllowedExternal } from "./policy.js";
+import { errorMessage } from "../src/errors.js";
 
 app.setName("Appa");
 // Retain the original profile and installer identity across the Appa rename.
@@ -14,7 +15,8 @@ app.setPath("sessionData", dataRoot);
 app.setAppUserModelId("com.ellenwang918.aigoalcalendar");
 app.commandLine.appendSwitch("force-renderer-accessibility");
 const hasLock = app.requestSingleInstanceLock();
-let mainWindow, runtime;
+let mainWindow: BrowserWindow | undefined;
+let runtime: Awaited<ReturnType<typeof startLocalApp>> | undefined;
 if (!hasLock) app.quit();
 else {
   app.on("second-instance", () => {
@@ -25,11 +27,11 @@ else {
   app.whenReady().then(async () => {
     try {
       const deviceSecret = randomBytes(32).toString("base64url");
-      runtime = await startLocalApp({
+      const localRuntime = (runtime = await startLocalApp({
         staticRoot: path.join(app.getAppPath(), "dist", "client"),
         dataRoot: app.getPath("userData"),
         deviceSecret,
-      });
+      }));
       mainWindow = new BrowserWindow({
         width: 1440,
         height: 980,
@@ -40,7 +42,13 @@ else {
         show: false,
         autoHideMenuBar: true,
         webPreferences: {
-          preload: path.join(app.getAppPath(), "desktop", "preload.cjs"),
+          preload: path.join(
+            app.getAppPath(),
+            "dist",
+            "runtime",
+            "desktop",
+            "preload.cjs",
+          ),
           partition: "persist:goal-calendar",
           nodeIntegration: false,
           contextIsolation: true,
@@ -49,20 +57,21 @@ else {
           webviewTag: false,
         },
       });
-      const contents = mainWindow.webContents;
+      const window = mainWindow;
+      const contents = window.webContents;
       contents.session.setPermissionRequestHandler(
         (_contents, _permission, callback) => callback(false),
       );
       contents.session.setPermissionCheckHandler(() => false);
       await contents.session.cookies.set({
-        url: runtime.origin,
+        url: localRuntime.origin,
         name: "calendar-device",
         value: deviceSecret,
         httpOnly: true,
         sameSite: "strict",
         path: "/",
       });
-      const openExternal = (url) => {
+      const openExternal = (url: string) => {
         if (isAllowedExternal(url))
           shell.openExternal(url).catch(() => {
             dialog.showErrorBox(
@@ -76,7 +85,7 @@ else {
         return { action: "deny" };
       });
       contents.on("will-navigate", (event, url) => {
-        if (new URL(url).origin !== runtime.origin) {
+        if (new URL(url).origin !== localRuntime.origin) {
           event.preventDefault();
           openExternal(url);
         }
@@ -113,14 +122,12 @@ else {
               {
                 label: "Source code and releases",
                 click: () =>
-                  openExternal(
-                    "https://github.com/ellenWang918/appa",
-                  ),
+                  openExternal("https://github.com/ellenWang918/appa"),
               },
               {
                 label: "About Appa",
                 click: () =>
-                  dialog.showMessageBox(mainWindow, {
+                  dialog.showMessageBox(window, {
                     type: "info",
                     title: "Appa",
                     message: `Appa ${app.getVersion()}`,
@@ -132,10 +139,10 @@ else {
           },
         ]),
       );
-      mainWindow.once("ready-to-show", () => mainWindow.show());
-      await mainWindow.loadURL(runtime.origin);
+      window.once("ready-to-show", () => window.show());
+      await window.loadURL(localRuntime.origin);
     } catch (error) {
-      dialog.showErrorBox("Appa could not start", error.message);
+      dialog.showErrorBox("Appa could not start", errorMessage(error));
       app.quit();
     }
   });

@@ -5,15 +5,72 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { createServer } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
+import type { Plugin } from "vite";
+import type { Account, Model, Plan } from "../src/types.js";
+import { errorCode, errorMessage } from "../src/errors.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { validatePlan } from "../src/calendar.mjs";
+import { validatePlan } from "../src/calendar.js";
+
+interface TokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  id_token?: string;
+  scope?: string;
+  expires_in: number;
+}
+interface Credentials extends TokenResponse {
+  client_id: string;
+  subject: string;
+  expiresAt: number;
+}
+interface LocalSession {
+  csrf: string;
+  credentials: Credentials | null;
+  account: Account | null;
+  models?: Model[] | null;
+  refreshing?: Promise<void> | null;
+  busy?: boolean;
+}
+interface SignInAttempt {
+  sessionId: string;
+  state: string;
+  nonce: string;
+  verifier: string;
+  clientId: string;
+  subject?: string;
+  redirectUri: string;
+  expiresAt: number;
+}
+interface Registrations {
+  hostId: string;
+  accounts: (Account & { subject: string })[];
+}
+interface Discovery {
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  jwks_uri: string;
+  revocation_endpoint?: string;
+}
+interface StreamEvent {
+  type: string;
+  delta?: string;
+  response?: { error?: { code?: string } };
+  error?: { code?: string };
+  code?: string;
+}
+interface ServiceOptions {
+  requireCallbackCookie?: boolean;
+  requestFetch?: typeof fetch;
+}
 
 const ISSUER = "https://auth.openai.com",
   RESOURCE = "https://api.openai.com/v1";
 const random = () => randomBytes(32).toString("base64url");
-export const equalSecret = (left, right) => {
+export const equalSecret = (left: unknown, right: unknown) => {
   if (typeof left !== "string" || typeof right !== "string") return false;
   const a = Buffer.from(left),
     b = Buffer.from(right);
@@ -44,7 +101,7 @@ const planSchema = {
   required: ["goalName", "kind", "perWeek", "clarification", "tasks"],
 };
 
-export async function readResponseStream(response) {
+export async function readResponseStream(response: Response): Promise<Plan> {
   if (!response.ok)
     throw new Error(
       response.status === 401
@@ -57,15 +114,15 @@ export async function readResponseStream(response) {
     text = "",
     completed = false;
   const decoder = new TextDecoder();
-  function event(raw) {
+  function event(raw: string) {
     const data = raw
       .split("\n")
       .filter((line) => line.startsWith("data:"))
       .map((line) => line.slice(5).trim())
       .join("\n");
     if (!data || data === "[DONE]") return;
-    const item = JSON.parse(data);
-    if (item.type === "response.output_text.delta") text += item.delta;
+    const item = JSON.parse(data) as StreamEvent;
+    if (item.type === "response.output_text.delta") text += item.delta || "";
     if (item.type === "response.completed") completed = true;
     if (item.type === "response.incomplete")
       throw new Error(
@@ -84,6 +141,10 @@ export async function readResponseStream(response) {
         "ChatGPT could not provide this plan. Try describing the goal differently.",
       );
   }
+  if (!response.body)
+    throw new Error(
+      "The connection ended before the plan was complete. Try again.",
+    );
   for await (const chunk of response.body) {
     buffer += decoder.decode(chunk, { stream: true });
     let match;
@@ -103,11 +164,16 @@ export async function readResponseStream(response) {
 export function createChatgptService({
   requireCallbackCookie = true,
   requestFetch = fetch,
-} = {}) {
-  const sessions = new Map(),
-    attempts = new Map();
-  let metadata, metadataFile, callbackServer, callbackUri, discovery, jwks;
-  const json = (res, status, data) => {
+}: ServiceOptions = {}) {
+  const sessions = new Map<string, LocalSession>(),
+    attempts = new Map<string, SignInAttempt>();
+  let metadata: Registrations;
+  let metadataFile: string;
+  let callbackServer: Server | undefined;
+  let callbackUri: string | undefined;
+  let discovery: Discovery | undefined;
+  let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
+  const json = (res: ServerResponse, status: number, data: unknown) => {
     res.writeHead(status, {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
@@ -115,7 +181,7 @@ export function createChatgptService({
     });
     res.end(JSON.stringify(data));
   };
-  const cookieId = (req) =>
+  const cookieId = (req: IncomingMessage) =>
     req.headers.cookie
       ?.split(";")
       .map((x) => x.trim())
@@ -135,19 +201,22 @@ export function createChatgptService({
       );
       if (!response.ok)
         throw new Error("ChatGPT sign-in is temporarily unavailable.");
-      discovery = await response.json();
+      const loaded = (await response.json()) as Discovery;
       if (
-        discovery.issuer !== ISSUER ||
-        ["authorization_endpoint", "token_endpoint", "jwks_uri"].some(
-          (key) => !discovery[key] || new URL(discovery[key]).origin !== ISSUER,
-        )
+        loaded.issuer !== ISSUER ||
+        (
+          ["authorization_endpoint", "token_endpoint", "jwks_uri"] as const
+        ).some((key) => !loaded[key] || new URL(loaded[key]).origin !== ISSUER)
       )
         throw new Error("ChatGPT sign-in configuration could not be verified.");
-      jwks = createRemoteJWKSet(new URL(discovery.jwks_uri));
+      discovery = loaded;
+      jwks = createRemoteJWKSet(new URL(loaded.jwks_uri));
     }
     return discovery;
   }
-  async function tokenRequest(values) {
+  async function tokenRequest(
+    values: Record<string, string>,
+  ): Promise<TokenResponse> {
     const settings = await config();
     const response = await requestFetch(settings.token_endpoint, {
       method: "POST",
@@ -159,7 +228,7 @@ export function createChatgptService({
       throw new Error(
         "ChatGPT authorization could not be completed. Please connect again.",
       );
-    const tokens = await response.json();
+    const tokens = (await response.json()) as TokenResponse;
     if (
       typeof tokens.access_token !== "string" ||
       !tokens.scope?.split(" ").includes("chatgpt.tokens.use.direct")
@@ -169,23 +238,24 @@ export function createChatgptService({
       );
     return tokens;
   }
-  async function ensureToken(session) {
+  async function ensureToken(session: LocalSession) {
     if (!session.credentials)
       throw new Error("Connect your ChatGPT account to create an AI plan.");
     if (session.credentials.expiresAt > Date.now() + 60000)
       return session.credentials.access_token;
     if (!session.credentials.refresh_token)
       throw new Error("Your ChatGPT connection expired. Connect again.");
+    const credentials = session.credentials;
     if (!session.refreshing)
       session.refreshing = (async () => {
         const tokens = await tokenRequest({
           grant_type: "refresh_token",
-          client_id: session.credentials.client_id,
-          refresh_token: session.credentials.refresh_token,
+          client_id: credentials.client_id,
+          refresh_token: credentials.refresh_token!,
           resource: RESOURCE,
         });
         session.credentials = {
-          ...session.credentials,
+          ...credentials,
           ...tokens,
           expiresAt: Date.now() + tokens.expires_in * 1000,
         };
@@ -193,9 +263,11 @@ export function createChatgptService({
         session.refreshing = null;
       });
     await session.refreshing;
+    if (!session.credentials)
+      throw new Error("Your ChatGPT connection expired. Connect again.");
     return session.credentials.access_token;
   }
-  async function modelsFor(session) {
+  async function modelsFor(session: LocalSession) {
     const token = await ensureToken(session);
     const response = await requestFetch(RESOURCE + "/models", {
       headers: { Authorization: `Bearer ${token}` },
@@ -205,7 +277,9 @@ export function createChatgptService({
       throw new Error(
         "Could not load models for this ChatGPT account. Try connecting again.",
       );
-    const data = await response.json();
+    const data = (await response.json()) as {
+      models?: { visibility: string; slug: string; display_name: string }[];
+    };
     session.models = (data.models || [])
       .filter((model) => model.visibility === "list")
       .map((model) => ({ id: model.slug, name: model.display_name }));
@@ -213,7 +287,7 @@ export function createChatgptService({
       throw new Error("No eligible models are available for this account.");
     return session.models;
   }
-  async function callback(req, res) {
+  async function callback(req: IncomingMessage, res: ServerResponse) {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader(
@@ -224,13 +298,13 @@ export function createChatgptService({
         "ChatGPT is connected. You can close this tab and return to your calendar.",
       status = 200;
     try {
-      const url = new URL(req.url, callbackUri);
+      const url = new URL(req.url || "/", callbackUri);
       if (url.pathname !== "/auth/callback") {
         res.writeHead(404);
         res.end();
         return;
       }
-      const state = url.searchParams.get("state"),
+      const state = url.searchParams.get("state") || "",
         attempt = attempts.get(state);
       attempts.delete(state);
       if (
@@ -265,9 +339,11 @@ export function createChatgptService({
         redirect_uri: attempt.redirectUri,
         resource: RESOURCE,
       });
-      await config();
+      const settings = await config();
+      if (!tokens.id_token || !jwks)
+        throw new Error("The ChatGPT account identity could not be verified.");
       const { payload } = await jwtVerify(tokens.id_token, jwks, {
-        issuer: discovery.issuer,
+        issuer: settings.issuer,
         audience: clientId,
         requiredClaims: ["sub", "exp", "iat"],
         clockTolerance: 5,
@@ -292,7 +368,12 @@ export function createChatgptService({
       };
       session.account = {
         id: clientId,
-        label: payload.email || payload.name || "ChatGPT account",
+        label:
+          typeof payload.email === "string"
+            ? payload.email
+            : typeof payload.name === "string"
+              ? payload.name
+              : "ChatGPT account",
       };
       session.models = null;
       metadata.accounts = metadata.accounts.filter(
@@ -306,31 +387,35 @@ export function createChatgptService({
       await saveMetadata();
     } catch (error) {
       status = 400;
-      message =
-        error.message ||
-        "ChatGPT connection failed. Return to the calendar and try again.";
+      message = errorMessage(
+        error,
+        "ChatGPT connection failed. Return to the calendar and try again.",
+      );
     }
     res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
     res.end(
-      `<!doctype html><meta name="referrer" content="no-referrer"><title>Appa</title><style>body{font:17px system-ui;color:#131c37;max-width:540px;margin:14vh auto;padding:24px;line-height:1.6}h1{font-size:24px}</style><h1>Appa</h1><p>${message.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char])}</p>`,
+      `<!doctype html><meta name="referrer" content="no-referrer"><title>Appa</title><style>body{font:17px system-ui;color:#131c37;max-width:540px;margin:14vh auto;padding:24px;line-height:1.6}h1{font-size:24px}</style><h1>Appa</h1><p>${message.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char)}</p>`,
     );
   }
-  async function listener() {
-    if (callbackServer) return callbackUri;
-    callbackServer = createServer((req, res) => {
+  async function listener(): Promise<string> {
+    if (callbackServer) return callbackUri!;
+    const server = (callbackServer = createServer((req, res) => {
       callback(req, res).catch(() => {
         res.writeHead(500);
         res.end("Connection failed. Please return to your calendar.");
       });
+    }));
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
     });
-    await new Promise((resolve, reject) => {
-      callbackServer.once("error", reject);
-      callbackServer.listen(0, "127.0.0.1", resolve);
-    });
-    callbackUri = `http://127.0.0.1:${callbackServer.address().port}/auth/callback`;
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("The local sign-in listener could not start.");
+    callbackUri = `http://127.0.0.1:${address.port}/auth/callback`;
     return callbackUri;
   }
-  async function body(req) {
+  async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
     let data = "";
     for await (const chunk of req) {
       data += chunk;
@@ -339,14 +424,14 @@ export function createChatgptService({
     return data ? JSON.parse(data) : {};
   }
   return {
-    async initialize(dataDirectory) {
+    async initialize(dataDirectory: string) {
       metadataFile = path.join(dataDirectory, "registrations.json");
       try {
         metadata = JSON.parse(await readFile(metadataFile, "utf8"));
         if (!metadata.hostId || !Array.isArray(metadata.accounts))
           throw new Error();
       } catch (error) {
-        if (error.code !== "ENOENT")
+        if (errorCode(error) !== "ENOENT")
           throw new Error(
             "Your saved ChatGPT registration could not be read. Restore its backup or contact the maintainer before reconnecting.",
           );
@@ -360,7 +445,11 @@ export function createChatgptService({
       sessions.clear();
       attempts.clear();
     },
-    async handle(req, res, next) {
+    async handle(
+      req: IncomingMessage,
+      res: ServerResponse,
+      next: () => void,
+    ): Promise<void> {
       if (!req.url?.startsWith("/api/")) return next();
       try {
         const origin = `http://${req.headers.host}`,
@@ -374,7 +463,7 @@ export function createChatgptService({
             error: "This request came from another website.",
           });
         const url = new URL(req.url, origin);
-        let sessionId = cookieId(req),
+        let sessionId = cookieId(req) || "",
           session = sessions.get(sessionId);
         if (url.pathname === "/api/session" && req.method === "GET") {
           if (!session) {
@@ -550,14 +639,14 @@ export function createChatgptService({
         return json(res, 404, { error: "This action is unavailable." });
       } catch (error) {
         return json(res, 400, {
-          error: error.message || "The request could not be completed.",
+          error: errorMessage(error, "The request could not be completed."),
         });
       }
     },
   };
 }
 
-export function chatgptPlugin() {
+export function chatgptPlugin(): Plugin {
   const service = createChatgptService();
   return {
     name: "local-chatgpt-plan",

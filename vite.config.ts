@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { chatgptPlugin } from "./server/chatgpt.mjs";
+import { chatgptPlugin } from "./server/chatgpt.js";
 
 export default defineConfig({
   build: {
@@ -13,7 +13,7 @@ export default defineConfig({
     host: "127.0.0.1",
     allowedHosts: ["terminal.local"],
     warmup: {
-      clientFiles: ["./src/main.jsx"],
+      clientFiles: ["./src/main.tsx"],
     },
   },
   plugins: [react(), chatgptPlugin()],

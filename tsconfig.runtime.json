@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "noEmit": false,
+    "noEmitOnError": true,
+    "rootDir": ".",
+    "outDir": "dist/runtime"
+  },
+  "include": [
+    "desktop/**/*.ts",
+    "desktop/**/*.cts",
+    "server/**/*.ts",
+    "src/calendar.ts",
+    "src/types.ts",
+    "src/errors.ts"
+  ]
+}

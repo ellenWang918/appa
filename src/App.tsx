@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
+import type { CalendarState, Slot, Task } from "./types";
+import { errorMessage } from "./errors";
 import {
   ArrowLeft,
   ArrowRight,
@@ -10,10 +13,10 @@ import {
   Sparkle,
   X,
 } from "@phosphor-icons/react";
-import * as cal from "./calendar.mjs";
-import { Planner, Settings, GoalDetails } from "./Dialogs.jsx";
-import { Dialog, Dot } from "./ui.jsx";
-import { desktop } from "./environment.mjs";
+import * as cal from "./calendar";
+import { Planner, Settings, GoalDetails } from "./Dialogs";
+import { Dialog, Dot } from "./ui";
+import { desktop } from "./environment";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -22,7 +25,8 @@ import "@fontsource/inter/600.css";
 const referenceMode =
   import.meta.env.DEV &&
   new URLSearchParams(location.search).get("reference") === "evening-planner";
-const dayFor = (zone) => (referenceMode ? "2026-10-12" : cal.localDate(zone));
+const dayFor = (zone?: string) =>
+  referenceMode ? "2026-10-12" : cal.localDate(zone);
 // Keep the original storage keys so the Appa rename preserves saved goals.
 const STORAGE = referenceMode
   ? "ai-goal-calendar.reference.v1"
@@ -51,7 +55,7 @@ function load() {
     };
   }
 }
-function download(value, name = "appa-backup.json") {
+function download(value: CalendarState | string, name = "appa-backup.json") {
   const url = URL.createObjectURL(
     new Blob(
       [typeof value === "string" ? value : JSON.stringify(value, null, 2)],
@@ -64,7 +68,7 @@ function download(value, name = "appa-backup.json") {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-const titleDate = (date) =>
+const titleDate = (date: string) =>
   cal.dateLabel(date, { weekday: "short", day: "numeric", month: "long" });
 
 export function App() {
@@ -79,13 +83,22 @@ export function App() {
     [selectedDay, setSelectedDay] = useState(() =>
       dayFor(initial.state.settings.timezone),
     ),
-    [selectedTask, setSelectedTask] = useState(null),
-    [modal, setModal] = useState(null),
-    [goalId, setGoalId] = useState(null),
+    [selectedTask, setSelectedTask] = useState<string | null>(null),
+    [modal, setModal] = useState<
+      | "planner"
+      | "settings"
+      | "goals"
+      | "goal"
+      | "import"
+      | "reset"
+      | "recovery"
+      | null
+    >(null),
+    [goalId, setGoalId] = useState<string | null>(null),
     [notice, setNotice] = useState(""),
     [today, setToday] = useState(() => dayFor(initial.state.settings.timezone));
-  const fileInput = useRef(null),
-    [pendingImport, setPendingImport] = useState(null),
+  const fileInput = useRef<HTMLInputElement>(null),
+    [pendingImport, setPendingImport] = useState<CalendarState | null>(null),
     [persistBlocked, setPersistBlocked] = useState(!!initial.error),
     todayRef = useRef(today);
   useEffect(() => {
@@ -127,20 +140,20 @@ export function App() {
     const timer = setInterval(refresh, 60000);
     return () => clearInterval(timer);
   }, [state.settings.timezone, persistBlocked]);
-  function change(fn, message = "") {
+  function change(fn: (state: CalendarState) => CalendarState, message = "") {
     try {
       setState(fn(state));
       setError("");
       setNotice(message);
     } catch (caught) {
-      setError(caught.message);
+      setError(errorMessage(caught));
     }
   }
   const active = state.goals.filter((goal) => goal.status === "active"),
     later = state.goals.filter((goal) => goal.status === "later");
   const days = Array.from({ length: 7 }, (_, i) => cal.addDays(week, i));
   const daySlots = cal.slotsFor(state, selectedDay),
-    used = cal.budgetFor(state, selectedDay),
+    plannedMinutes = cal.plannedMinutesFor(state, selectedDay),
     remaining = daySlots
       .flatMap((slot) => slot.tasks)
       .filter((task) => task.status === "pending");
@@ -173,7 +186,7 @@ export function App() {
     .slice(0, 2);
   const shared = daySlots.filter((slot) => slot.tasks.length > 1 && !slot.done);
   const goal = state.goals.find((item) => item.id === goalId);
-  const complete = (task) =>
+  const complete = (task: Task) =>
     change(
       (previous) => cal.completeTask(previous, task.id, today),
       "Progress saved.",
@@ -183,7 +196,7 @@ export function App() {
     setWeek(cal.monday(today));
     setSelectedTask(null);
   }
-  async function readImport(event) {
+  async function readImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
@@ -194,7 +207,7 @@ export function App() {
       setPendingImport(raw);
       setModal("import");
     } catch (caught) {
-      setError(caught.message);
+      setError(errorMessage(caught));
     }
   }
   return (
@@ -481,15 +494,12 @@ export function App() {
                   <h1>{titleDate(today)}</h1>
                   <p className="muted">One small step is enough to begin.</p>
                 </div>
-                <span className="budget-pill">
-                  {cal.budgetFor(state, today)} / {state.settings.budget} min
-                </span>
               </div>
               {cal.slotsFor(state, today).length ? (
                 cal.slotsFor(state, today).map((slot) => (
                   <button
                     key={slot.id}
-                    className={`agenda-card ${cal.goalFor(state, slot.tasks[0]).color}`}
+                    className={`agenda-card ${cal.goalFor(state, slot.tasks[0])!.color}`}
                     onClick={() => {
                       setSelectedDay(today);
                       setSelectedTask(
@@ -508,7 +518,7 @@ export function App() {
                           : (slot.chosen || slot.tasks[0]).title}
                       </h3>
                       <p>
-                        {cal.goalFor(state, slot.tasks[0]).name} ·{" "}
+                        {cal.goalFor(state, slot.tasks[0])!.name} ·{" "}
                         {slot.duration} min
                         {slot.tasks.length > 1 && !slot.chosen
                           ? " reserved"
@@ -540,16 +550,8 @@ export function App() {
               {titleDate(selectedDay)}
             </h2>
             <p>
-              <strong>
-                {used} / {state.settings.budget} min
-              </strong>{" "}
-              planned
+              <strong>{plannedMinutes} min</strong> planned
             </p>
-            <progress
-              value={used}
-              max={state.settings.budget}
-              aria-label="Daily time planned"
-            />
           </section>
           <section className="next-step">
             <p className="section-label">
@@ -559,8 +561,8 @@ export function App() {
               <>
                 <h1>{nextTask.title}</h1>
                 <p className="task-goal">
-                  <Dot color={cal.goalFor(state, nextTask).color} />
-                  {cal.goalFor(state, nextTask).name}
+                  <Dot color={cal.goalFor(state, nextTask)!.color} />
+                  {cal.goalFor(state, nextTask)!.name}
                 </p>
                 <p className="task-duration">
                   <Clock size={24} />
@@ -629,11 +631,11 @@ export function App() {
                 {slot.duration} min {slot.chosen ? "planned" : "reserved"}{" "}
                 <span className="separator">·</span>{" "}
                 <span
-                  className={cal.goalFor(state, slot.tasks[0]).color + "-text"}
+                  className={cal.goalFor(state, slot.tasks[0])!.color + "-text"}
                 >
                   {new Set(slot.tasks.map((t) => t.goalId)).size > 1
                     ? "Multiple goals"
-                    : cal.goalFor(state, slot.tasks[0]).name}
+                    : cal.goalFor(state, slot.tasks[0])!.name}
                 </span>
               </p>
               <div className="activity-options">
@@ -663,7 +665,7 @@ export function App() {
                       {task.title}
                       <small>
                         {new Set(slot.tasks.map((t) => t.goalId)).size > 1
-                          ? cal.goalFor(state, task).name + " · "
+                          ? cal.goalFor(state, task)!.name + " · "
                           : ""}
                         {task.minutes} min
                         {cal.isBlocked(state, task)
@@ -679,7 +681,9 @@ export function App() {
                 nextTask?.id !== slot.chosen.id && (
                   <button
                     className="secondary full"
-                    onClick={() => complete(slot.chosen)}
+                    onClick={() => {
+                      if (slot.chosen) complete(slot.chosen);
+                    }}
                   >
                     Complete {slot.chosen.title}
                   </button>
@@ -701,7 +705,7 @@ export function App() {
                     setSelectedTask(task.id);
                   }}
                 >
-                  <Dot color={cal.goalFor(state, task).color} />
+                  <Dot color={cal.goalFor(state, task)!.color} />
                   <span>
                     <strong>{task.title}</strong>
                     <small>
@@ -810,7 +814,7 @@ export function App() {
             setNotice("Planning settings saved.");
           }}
           onExport={() => download(state)}
-          onImport={() => fileInput.current.click()}
+          onImport={() => fileInput.current?.click()}
         />
       )}
       {modal === "goals" && (
@@ -873,7 +877,7 @@ export function App() {
           }}
         />
       )}
-      {modal === "import" && (
+      {modal === "import" && pendingImport && (
         <Dialog title="Restore this backup?" onClose={() => setModal(null)}>
           <div className="dialog-body">
             <p>
@@ -942,7 +946,15 @@ export function App() {
   );
 }
 
-function CalendarEvent({ slot, state, onClick }) {
+function CalendarEvent({
+  slot,
+  state,
+  onClick,
+}: {
+  slot: Slot;
+  state: CalendarState;
+  onClick: () => void;
+}) {
   const task = slot.chosen || slot.tasks[0],
     goal = cal.goalFor(state, task),
     shared = slot.tasks.length > 1 && !slot.chosen,
@@ -952,6 +964,7 @@ function CalendarEvent({ slot, state, onClick }) {
       .find((other) => other.start > slot.start),
     available = (next?.start || state.settings.end) - slot.start,
     range = state.settings.end - state.settings.start;
+  if (!goal) return null;
   return (
     <button
       className={`calendar-event ${goal.color} ${shared ? "shared" : ""} ${slot.done ? "done" : ""} ${blocked ? "blocked" : ""} ${available < 28 ? "compact" : ""}`}
@@ -984,7 +997,13 @@ function CalendarEvent({ slot, state, onClick }) {
     </button>
   );
 }
-function Empty({ onPlan, hasGoals }) {
+function Empty({
+  onPlan,
+  hasGoals,
+}: {
+  onPlan: () => void;
+  hasGoals: boolean;
+}) {
   return (
     <div className="empty-state">
       <Sparkle size={32} />

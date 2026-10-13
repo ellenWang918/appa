@@ -515,29 +515,6 @@ p {
 .day-summary strong {
   font-weight: 600;
 }
-progress {
-  appearance: none;
-  width: 100%;
-  height: 13px;
-  margin-top: 12px;
-  display: block;
-  border: 0;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #e9edf4;
-}
-progress::-webkit-progress-bar {
-  background: #e9edf4;
-  border-radius: 10px;
-}
-progress::-webkit-progress-value {
-  background: var(--indigo);
-  border-radius: 10px;
-}
-progress::-moz-progress-bar {
-  background: var(--indigo);
-  border-radius: 10px;
-}
 .day-panel section + section {
   border-top: 1px solid var(--line);
   margin-top: 29px;
@@ -717,14 +694,6 @@ progress::-moz-progress-bar {
   font-size: 27px;
   letter-spacing: -0.8px;
   margin: 12px 0 8px;
-}
-.budget-pill {
-  border-radius: 20px;
-  background: #eef0ff;
-  color: var(--indigo);
-  padding: 9px 13px;
-  white-space: nowrap;
-  font-size: 12px;
 }
 .agenda-card {
   display: flex;
@@ -1106,9 +1075,6 @@ progress::-moz-progress-bar {
 }
 .event-options {
   margin-left: 5px;
-}
-.day-summary progress {
-  margin-top: 15px;
 }
 .day-panel section.next-step {
   padding-top: 18px;
@@ -1496,9 +1462,6 @@ progress::-moz-progress-bar {
   .day-summary p {
     font-size: 15px;
   }
-  .day-summary progress {
-    max-width: 100%;
-  }
   .next-step h1 {
     font-size: 22px;
   }
@@ -1561,9 +1524,6 @@ progress::-moz-progress-bar {
   }
   .agenda-heading h1 {
     font-size: 24px;
-  }
-  .budget-pill {
-    display: none;
   }
   .agenda-card {
     padding: 20px 14px;

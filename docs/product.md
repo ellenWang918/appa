@@ -7,7 +7,7 @@ Appa helps one person turn an intention into a manageable next action, and retur
 - English interface, Today and Week views. Desktop starts empty and uses the computer's timezone.
 - Any chosen number of active goals. Later keeps accepted plans without scheduling them. Activating a saved goal preserves its identity and existing progress and keeps other active goals in place.
 - AI proposals are editable and require approval before scheduling. Manual planning works without an AI account. Aim at 5–25 minute tasks; the editor accepts up to 60 minutes when the daily window permits.
-- Default daily budget is 60 minutes inside 18:00–21:00, adjustable. Scheduling never increases that budget automatically.
+- Scheduling uses available hours, initially 18:00–21:00 and adjustable, with no separate daily time limit. The user removed the daily budget on 2026-10-13. Older saved calendars and backups remain supported; their former budget field is discarded when loaded.
 - Prerequisites constrain actionable work and move forward in dependency order. Independent work remains in place unless involved in a scheduling conflict.
 - Shared slots contain alternatives. Reserve their maximum duration until selection, then the selected duration. Selection alone changes no completion state.
 - Completing a selected shared task skips unchosen recurring occurrences in that slot; project alternatives remain unfinished, and future repeats keep their cadence.
@@ -16,6 +16,6 @@ Appa helps one person turn an intention into a manageable next action, and retur
 
 ## Main modules
 
-`src/calendar.mjs` owns scheduling, recurrence, recovery, validation and reversible changes. `src/App.jsx` coordinates the calendar views; `src/Dialogs.jsx` owns planning, settings and goal details. `server/chatgpt.mjs` supplies the reusable local OAuth/inference service and browser-development adapter. `desktop/` supplies Electron startup, its private loopback server, and external-link policy.
+`src/types.ts` defines the shared goal, task, plan, calendar and API contracts. `src/calendar.ts` owns scheduling, recurrence, recovery, validation and reversible changes. `src/App.tsx` coordinates the calendar views; `src/Dialogs.tsx` owns planning, settings and goal details. `server/chatgpt.ts` supplies the reusable local OAuth/inference service and browser-development adapter. `desktop/` supplies Electron startup, its private loopback server, and external-link policy.
 
 The Evening Planner interface is the visual baseline. Functional changes should preserve its typography, palette and layout unless the requested behavior requires a scoped adjustment.

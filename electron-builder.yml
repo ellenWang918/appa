@@ -5,9 +5,7 @@ directories:
   output: release
 files:
   - dist/client/**/*
-  - desktop/**/*
-  - server/**/*
-  - src/calendar.mjs
+  - dist/runtime/**/*
   - package.json
   - LICENSE
   - THIRD_PARTY_NOTICES.md

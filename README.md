@@ -17,12 +17,12 @@ The first release is unsigned and has no automatic updater. Windows may show an 
 ## Start with one goal
 
 1. Open Appa. A new installation starts with an empty calendar and your computer's timezone.
-2. Open **Settings & backup** to choose your daily time budget and available hours. The initial budget is 60 minutes within 18:00–21:00.
+2. Available hours start at 18:00–21:00. You can change them anytime in **Settings & backup**.
 3. Choose **Plan a goal**. Describe your intention, connect your own ChatGPT account, and select **Create an AI plan**. You can also choose **Write a plan myself** without signing in.
 4. Review and edit the proposed steps. Choose **Add to active goals** or **Save in Later**, then approve.
 5. Use **Today** to find the next action. When a slot offers alternatives, choose one. Mark work complete only when you finish it.
 
-Open a saved goal in **Later** and choose **Make this goal active** whenever you are ready. More than two goals can be active; scheduling still respects your daily budget.
+Open a saved goal in **Later** and choose **Make this goal active** whenever you are ready. More than two goals can be active; scheduling fits within your available hours.
 
 ## Bring your own ChatGPT account
 
@@ -55,6 +55,7 @@ Requirements: Windows x64 and Node.js 22 or newer.
 
 ```sh
 npm ci
+npm run build
 npm test
 npm run desktop
 ```
@@ -68,6 +69,8 @@ npm run desktop:dist
 The installer is written to `release/`. `npm run desktop:pack` creates an unpacked app. GitHub Actions runs checks on changes and can build installer artifacts on a version tag or manual workflow dispatch. The workflow does not automatically publish a release.
 
 For interface development, `npm run dev -- --host 127.0.0.1 --port 4173 --strictPort` opens a separate browser preview. The production desktop app uses bundled assets and a private local server; no hosted website is required. The static hosting template files are retained for compatibility but are not the desktop runtime.
+
+Application code uses strict TypeScript: React components in `.tsx`, scheduling and services in `.ts`, and Electron's sandboxed preload in `.cts`. Shared domain and API types are defined in `src/types.ts`. Run `npm run typecheck` to check the interface and runtime; production builds require this check to pass. Runtime code compiles into `dist/runtime/`, while Vite builds the interface into `dist/client/`. Electron and the automated tests execute the compiled runtime without a TypeScript loader.
 
 ## Contribute
 

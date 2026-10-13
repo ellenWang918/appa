@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import * as c from "../src/calendar.mjs";
-import { equalSecret, readResponseStream } from "../server/chatgpt.mjs";
+import * as c from "../dist/runtime/src/calendar.js";
+import {
+  equalSecret,
+  readResponseStream,
+} from "../dist/runtime/server/chatgpt.js";
 const today = "2026-10-12";
 function feasible(state, date = today) {
   const slots = c.slotsFor(state, date);
-  assert.ok(c.budgetFor(state, date) <= state.settings.budget);
   for (let i = 0; i < slots.length; i++) {
     assert.ok(slots[i].start >= state.settings.start);
     assert.ok(slots[i].start + slots[i].duration <= state.settings.end);
@@ -15,12 +17,12 @@ function feasible(state, date = today) {
 }
 test("Shared slots reserve the longest duration; choosing changes capacity without completing", () => {
   let state = c.seed(today);
-  assert.equal(c.budgetFor(state, today), 45);
+  assert.equal(c.plannedMinutesFor(state, today), 45);
   state = c.selectChoice(state, today, "move-slot", "walk");
-  assert.equal(c.budgetFor(state, today), 35);
+  assert.equal(c.plannedMinutesFor(state, today), 35);
   assert.ok(state.tasks.every((t) => t.status === "pending"));
   state = c.selectChoice(state, today, "move-slot", "stretch");
-  assert.equal(c.budgetFor(state, today), 45);
+  assert.equal(c.plannedMinutesFor(state, today), 45);
   feasible(state);
 });
 test("Completing a shared choice skips other recurring occurrences, keeps future repeats and supports undo", () => {
@@ -138,11 +140,7 @@ test("Recurrence extension is idempotent and keeps regular cadence", () => {
 });
 test("Settings keep choices together, reflow capacity and preserve dependencies", () => {
   const state = c.seed(today);
-  const next = c.updateSettings(
-    state,
-    { ...state.settings, budget: 30 },
-    today,
-  );
+  const next = c.updateSettings(state, { ...state.settings, end: 1110 }, today);
   assert.equal(
     next.tasks.find((t) => t.id === "walk").slotId,
     next.tasks.find((t) => t.id === "stretch").slotId,
@@ -164,11 +162,7 @@ test("Settings never lose pending projects in completed shared slots", () => {
     "walk",
     today,
   );
-  const next = c.updateSettings(
-    state,
-    { ...state.settings, budget: 50 },
-    today,
-  );
+  const next = c.updateSettings(state, { ...state.settings, end: 1130 }, today);
   assert.equal(next.tasks.find((t) => t.id === "outline").date, "2026-10-13");
   assert.equal(next.tasks.find((t) => t.id === "walk").date, today);
 });
@@ -186,7 +180,7 @@ test("New plans can join more than two active goals while preserving daily capac
   const state = c.seed(today);
   const later = c.approvePlan(state, plan, { today, later: true });
   assert.equal(later.goals.at(-1).status, "later");
-  assert.equal(c.budgetFor(later, today), 45);
+  assert.equal(c.plannedMinutesFor(later, today), 45);
   const next = c.approvePlan(state, plan, { today });
   assert.equal(next.goals.filter((g) => g.status === "active").length, 3);
   assert.equal(next.goals.find((g) => g.id === "portfolio").status, "active");
@@ -240,7 +234,7 @@ test("Backup validation rejects cycles, invalid recurrences and over-capacity sc
     /recurring occurrence/,
   );
   const capacity = c.copy(state);
-  capacity.settings.budget = 30;
+  capacity.settings.end = 1110;
   assert.throws(() => c.validateBackup(capacity, today), /capacity/);
   assert.throws(
     () =>
@@ -289,7 +283,7 @@ test("Settings that exclude finished work are rejected rather than breaking the 
   );
   assert.doesNotThrow(() =>
     c.validateBackup(
-      c.updateSettings(state, { ...state.settings, budget: 30 }, today),
+      c.updateSettings(state, { ...state.settings, end: 1110 }, today),
       today,
     ),
   );
@@ -303,6 +297,146 @@ test("Invalid saved draft is discarded while the valid calendar is preserved", (
   const next = c.validateBackup(state, today);
   assert.equal(next.draft, null);
   assert.equal(next.tasks.length, state.tasks.length);
+});
+test("Scheduling uses the full available window beyond the former daily limit", () => {
+  const longPlan = {
+    ...plan,
+    tasks: ["Research", "Practice", "Review"].map((title) => ({
+      title,
+      minutes: 60,
+      dependsOn: [],
+    })),
+  };
+  let state = c.approvePlan(c.blank(today), longPlan, { today });
+  assert.deepEqual(
+    c.slotsFor(state, today).map((slot) => slot.start),
+    [1080, 1140, 1200],
+  );
+  assert.equal(c.plannedMinutesFor(state, today), 180);
+  feasible(state);
+  for (const task of [...state.tasks])
+    state = c.completeTask(state, task.id, today);
+  state = c.approvePlan(
+    state,
+    { ...plan, tasks: [{ title: "One more step", minutes: 5, dependsOn: [] }] },
+    { today },
+  );
+  assert.equal(state.tasks.at(-1).date, c.addDays(today, 1));
+  feasible(state);
+  feasible(state, c.addDays(today, 1));
+});
+test("Available hours can accommodate more than 180 planned minutes", () => {
+  const state = c.updateSettings(
+    c.blank(today),
+    { start: 540, end: 1020, timezone: "Australia/Brisbane" },
+    today,
+  );
+  const next = c.approvePlan(
+    state,
+    {
+      ...plan,
+      tasks: ["Research", "Practice", "Review", "Write"].map((title) => ({
+        title,
+        minutes: 60,
+        dependsOn: [],
+      })),
+    },
+    { today },
+  );
+  assert.equal(c.plannedMinutesFor(next, today), 240);
+  assert.equal(c.slotsFor(next, today).length, 4);
+  feasible(next);
+  assert.doesNotThrow(() => c.validateBackup(next, today));
+});
+test("Recovery uses free hours without merging work at the former daily limit", () => {
+  const yesterday = c.addDays(today, -1);
+  const state = c.approvePlan(
+    c.blank(yesterday),
+    {
+      ...plan,
+      tasks: ["Research", "Practice"].map((title) => ({
+        title,
+        minutes: 60,
+        dependsOn: [],
+      })),
+    },
+    { today: yesterday },
+  );
+  const next = c.catchUp(state, today, 1080);
+  assert.equal(c.plannedMinutesFor(next, today), 120);
+  assert.equal(c.slotsFor(next, today).length, 2);
+  assert.ok(next.tasks.every((task) => task.date === today));
+  feasible(next);
+  assert.deepEqual(c.undoChange(next).tasks, state.tasks);
+});
+test("Legacy budgets are discarded on reload, import and settings save without losing progress", () => {
+  const state = c.completeTask(
+    c.selectChoice(c.seed(today), today, "move-slot", "walk"),
+    "outline",
+    today,
+  );
+  state.settings.budget = 30;
+  state.draft = { intention: "Read a book", plan };
+  const original = c.copy(state);
+  const restored = c.validateBackup(JSON.parse(JSON.stringify(state)), today);
+  assert.equal(Object.hasOwn(restored.settings, "budget"), false);
+  assert.deepEqual(restored.tasks, state.tasks);
+  assert.deepEqual(restored.goals, state.goals);
+  assert.deepEqual(restored.choices, state.choices);
+  assert.deepEqual(restored.draft, state.draft);
+  assert.deepEqual(state, original);
+  const imported = c.importBackup(c.blank(today), state, today);
+  assert.equal(Object.hasOwn(imported.settings, "budget"), false);
+  assert.deepEqual(imported.tasks, state.tasks);
+  const updated = c.updateSettings(state, state.settings, today);
+  assert.equal(Object.hasOwn(updated.settings, "budget"), false);
+  assert.equal(
+    updated.tasks.find((task) => task.id === "outline").status,
+    "done",
+  );
+  assert.doesNotThrow(() => c.validateBackup(updated, today));
+});
+test("A longer shared choice can exceed 60 planned minutes when hours remain", () => {
+  let state = c.approvePlan(
+    c.seed(today),
+    { ...plan, tasks: [{ title: "Practice", minutes: 50, dependsOn: [] }] },
+    { today },
+  );
+  state = c.selectChoice(state, today, "move-slot", "walk");
+  assert.equal(c.plannedMinutesFor(state, today), 85);
+  state = c.selectChoice(state, today, "move-slot", "stretch");
+  assert.equal(c.plannedMinutesFor(state, today), 95);
+  feasible(state);
+  const overlap = c.copy(state);
+  overlap.tasks.at(-1).start = 1125;
+  overlap.choices[`${today}/move-slot`] = "walk";
+  assert.throws(
+    () => c.selectChoice(overlap, today, "move-slot", "stretch"),
+    /no longer fits/,
+  );
+});
+test("Settings still reject invalid available hours and tasks longer than the window", () => {
+  const state = c.blank(today);
+  for (const hours of [
+    { start: -5, end: 1260 },
+    { start: 1080, end: 1445 },
+    { start: 1080, end: 1080 },
+    { start: 1080, end: 1084 },
+    { start: 1080.5, end: 1260 },
+  ])
+    assert.throws(
+      () => c.updateSettings(state, { ...state.settings, ...hours }, today),
+      /Available hours/,
+    );
+  const narrow = c.updateSettings(
+    state,
+    { ...state.settings, end: 1095 },
+    today,
+  );
+  assert.throws(
+    () => c.approvePlan(narrow, plan, { today }),
+    /longer than your available hours/,
+  );
 });
 test("Secret comparison rejects differing byte lengths without throwing", () => {
   assert.equal(equalSecret("same", "same"), true);
