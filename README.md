@@ -4,9 +4,11 @@ A local, open-source Windows desktop planner that turns intentions into small, a
 
 **Early release · Windows x64 · MIT license**
 
+![AI Goal Calendar running on Windows](docs/screenshots/desktop.png)
+
 ## Get the desktop app
 
-Download the Windows installer from [GitHub Releases](https://github.com/ellenWang918/ai-goal-calendar/releases). If no release is published yet, build from source using the instructions below. End users do not need Node.js when using the installer.
+Download the Windows preview installer from [GitHub Releases](https://github.com/ellenWang918/ai-goal-calendar/releases). End users do not need Node.js when using the installer.
 
 The first release is unsigned and has no automatic updater. Windows may show an unrecognized-publisher warning; code signing is planned for a later release. Download only from this repository's Releases page.
 
