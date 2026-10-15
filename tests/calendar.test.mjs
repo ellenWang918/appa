@@ -6,6 +6,17 @@ import {
   readResponseStream,
 } from "../dist/runtime/server/chatgpt.js";
 const today = "2026-10-12";
+test("Calendar date and current-time position use the same instant in the chosen timezone", () => {
+  const beforeMidnight = new Date("2026-10-14T13:59:30Z");
+  assert.equal(c.localDate("Australia/Brisbane", beforeMidnight), "2026-10-14");
+  assert.equal(c.localMinute("Australia/Brisbane", beforeMidnight), 1439);
+  assert.equal(c.localDate("Pacific/Auckland", beforeMidnight), "2026-10-15");
+  assert.equal(c.localMinute("Pacific/Auckland", beforeMidnight), 179);
+  const midnight = new Date("2026-10-14T14:00:00Z");
+  assert.equal(c.localDate("Australia/Brisbane", midnight), "2026-10-15");
+  assert.equal(c.localMinute("Australia/Brisbane", midnight), 0);
+});
+
 function feasible(state, date = today) {
   const slots = c.slotsFor(state, date);
   for (let i = 0; i < slots.length; i++) {
@@ -443,6 +454,210 @@ test("Secret comparison rejects differing byte lengths without throwing", () => 
   assert.equal(equalSecret("é", "a"), false);
   assert.equal(equalSecret(null, "x"), false);
 });
+test("Calendars beyond former lifetime limits survive reload and reversible import", () => {
+  let state = c.blank(today);
+  for (let i = 0; i < 101; i++)
+    state = c.approvePlan(state, plan, { today, later: true });
+  let restored = c.validateBackup(JSON.parse(JSON.stringify(state)), today);
+  assert.equal(restored.goals.length, 101);
+  assert.deepEqual(
+    c.importBackup(c.blank(today), restored, today).goals,
+    state.goals,
+  );
+  state = c.blank(today);
+  state.goals = [
+    {
+      id: "history",
+      name: "History",
+      color: "teal",
+      status: "active",
+      recurrence: null,
+    },
+  ];
+  state.tasks = Array.from({ length: 5001 }, (_, i) => ({
+    id: `history-${i}`,
+    goalId: "history",
+    title: "Finished step",
+    minutes: 5,
+    date: c.addDays(today, -1),
+    start: 1080,
+    slotId: `history-slot-${i}`,
+    dependsOn: [],
+    status: "done",
+  }));
+  restored = c.validateBackup(JSON.parse(JSON.stringify(state)), today);
+  assert.deepEqual(restored.tasks, state.tasks);
+  assert.equal(
+    c.importBackup(c.blank(today), restored, today).tasks.length,
+    5001,
+  );
+});
+test("Active recurrence templates must fit hours even without upcoming tasks", () => {
+  const state = c.blank(today);
+  state.settings.end = 1085;
+  state.goals = [
+    {
+      id: "repeat",
+      name: "Repeat",
+      color: "teal",
+      status: "active",
+      recurrence: {
+        perWeek: 1,
+        anchor: today,
+        templates: [{ title: "Long session", minutes: 60 }],
+      },
+    },
+  ];
+  assert.throws(
+    () => c.validateBackup(state, today),
+    /recurring.*available hours/i,
+  );
+  state.goals[0].status = "later";
+  assert.doesNotThrow(() => c.validateBackup(state, today));
+  state.goals[0].status = "active";
+  state.settings.end = 1260;
+  assert.throws(
+    () => c.updateSettings(state, { ...state.settings, end: 1085 }, today),
+    /recurring.*available hours/i,
+  );
+  assert.doesNotThrow(() => c.validateBackup(state, today));
+});
+test("Approving work after a short shared choice preserves non-overlap and reloadability", () => {
+  const yesterday = c.addDays(today, -1);
+  let state = c.updateSettings(
+    c.blank(yesterday),
+    { start: 1080, end: 1110, timezone: "Australia/Brisbane" },
+    yesterday,
+  );
+  state = c.extendRecurrences(
+    c.approvePlan(
+      state,
+      {
+        goalName: "Repeat",
+        kind: "recurring",
+        perWeek: 7,
+        clarification: null,
+        tasks: [
+          { title: "Short option", minutes: 5, dependsOn: [] },
+          { title: "Long option", minutes: 20, dependsOn: [] },
+        ],
+      },
+      { today: yesterday },
+    ),
+    yesterday,
+  );
+  const short = state.tasks.find((t) => t.date === yesterday);
+  state = c.extendRecurrences(c.catchUp(state, today, 1080), today);
+  const shared = c
+    .slotsFor(state, today)
+    .find((slot) => slot.tasks.some((t) => t.id === short.id));
+  state = c.selectChoice(state, today, shared.id, short.id);
+  state = c.approvePlan(
+    state,
+    {
+      ...plan,
+      tasks: [{ title: "Fill freed time", minutes: 25, dependsOn: [] }],
+    },
+    { today },
+  );
+  const before = c.copy(state);
+  state = c.approvePlan(
+    state,
+    { ...plan, tasks: [{ title: "Extra step", minutes: 5, dependsOn: [] }] },
+    { today },
+  );
+  for (const date of new Set(state.tasks.map((t) => t.date)))
+    feasible(state, date);
+  assert.doesNotThrow(() => c.validateBackup(state, today));
+  assert.equal(
+    c.slotsFor(state, today).find((s) => s.id === shared.id).chosen?.id,
+    short.id,
+  );
+  assert.deepEqual(c.undoChange(state).tasks, before.tasks);
+});
+test("Narrowing hours preserves an incoming shared choice and produces a reloadable calendar", () => {
+  const state = c.blank(today);
+  state.settings.end = 1110;
+  state.goals = [
+    {
+      id: "g",
+      name: "Project",
+      status: "active",
+      color: "teal",
+      recurrence: null,
+    },
+  ];
+  state.tasks = [
+    ["first", 5, 1080, "a"],
+    ["chosen", 10, 1085, "b"],
+    ["long", 20, 1085, "b"],
+  ].map(([id, minutes, start, slotId]) => ({
+    id,
+    minutes,
+    start,
+    slotId,
+    goalId: "g",
+    title: id,
+    date: today,
+    dependsOn: [],
+    status: "pending",
+  }));
+  state.choices[`${today}/b`] = "chosen";
+  c.validateBackup(state, today);
+  const before = c.copy(state);
+  const next = c.updateSettings(state, { ...state.settings, end: 1090 }, today);
+  const chosen = next.tasks.find((t) => t.id === "chosen");
+  const slot = c
+    .slotsFor(next, chosen.date)
+    .find((s) => s.id === chosen.slotId);
+  assert.equal(slot.chosen?.id, "chosen");
+  assert.deepEqual(
+    slot.tasks.map((t) => t.id),
+    ["chosen", "long"],
+  );
+  assert.ok(chosen.date > today);
+  for (const date of new Set(next.tasks.map((t) => t.date)))
+    feasible(next, date);
+  const restored = c.validateBackup(JSON.parse(JSON.stringify(next)), today);
+  assert.deepEqual(restored.tasks, next.tasks);
+  assert.deepEqual(c.undoChange(next).tasks, before.tasks);
+  assert.deepEqual(state, before);
+});
+
+test("Reload and cross-timezone import classify history using the saved timezone", (t) => {
+  t.mock.timers.enable({
+    apis: ["Date"],
+    now: new Date("2026-10-13T11:30:00Z"),
+  });
+  const localToday = "2026-10-14";
+  assert.equal(c.localDate("Pacific/Auckland"), localToday);
+  assert.equal(c.localDate("Australia/Brisbane"), "2026-10-13");
+  const state = c.approvePlan(
+    c.blank("2026-10-13"),
+    {
+      ...plan,
+      tasks: [{ title: "Finished yesterday", minutes: 20, dependsOn: [] }],
+    },
+    { today: "2026-10-13" },
+  );
+  state.settings.timezone = "Pacific/Auckland";
+  const completed = c.completeTask(state, state.tasks[0].id, "2026-10-13");
+  const next = c.updateSettings(completed, {
+    ...completed.settings,
+    start: 1140,
+  });
+  const raw = JSON.parse(JSON.stringify(next));
+  assert.deepEqual(c.validateBackup(raw).tasks, next.tasks);
+  for (const timezone of ["Australia/Brisbane", "America/New_York"]) {
+    const workspace = c.blank(c.localDate(timezone));
+    workspace.settings.timezone = timezone;
+    const imported = c.importBackup(workspace, raw);
+    assert.deepEqual(imported.tasks, next.tasks);
+    assert.equal(imported.settings.timezone, "Pacific/Auckland");
+    assert.deepEqual(c.undoChange(imported).settings, workspace.settings);
+  }
+});
+
 function stream(events, chunkSize = 13) {
   const bytes = new TextEncoder().encode(
     events.map((item) => "data: " + JSON.stringify(item) + "\r\n\r\n").join(""),

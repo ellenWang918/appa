@@ -8,6 +8,11 @@ import type {
   Slot,
   Task,
 } from "./types.js";
+import {
+  DEFAULT_CALENDAR_PREFERENCES,
+  INTERFACE_LANGUAGES,
+  isHolidayCalendar,
+} from "./calendarPreferences.js";
 
 export const COLORS: GoalColor[] = ["indigo", "teal", "amber", "rose"];
 export const id = () => globalThis.crypto.randomUUID();
@@ -23,13 +28,13 @@ export function localDate(timeZone = "Australia/Brisbane", now = new Date()) {
     .map((key) => parts.find((p) => p.type === key)!.value)
     .join("-");
 }
-export function localMinute(timeZone = "Australia/Brisbane") {
+export function localMinute(timeZone = "Australia/Brisbane", now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).formatToParts(new Date());
+  }).formatToParts(now);
   return (
     Number(parts.find((p) => p.type === "hour")!.value) * 60 +
     Number(parts.find((p) => p.type === "minute")!.value)
@@ -40,13 +45,20 @@ export const addDays = (date: string, count: number) =>
     .toISOString()
     .slice(0, 10);
 export function monday(date: string) {
-  return addDays(date, -((new Date(date + "T12:00:00Z").getUTCDay() + 6) % 7));
+  return weekStart(date, 1);
+}
+export function weekStart(date: string, startsOn = 1) {
+  return addDays(
+    date,
+    -((new Date(date + "T12:00:00Z").getUTCDay() - startsOn + 7) % 7),
+  );
 }
 export const dateLabel = (
   date: string,
   options: Intl.DateTimeFormatOptions = {},
+  language = "en-AU",
 ) =>
-  new Intl.DateTimeFormat("en-AU", { timeZone: "UTC", ...options }).format(
+  new Intl.DateTimeFormat(language, { timeZone: "UTC", ...options }).format(
     new Date(date + "T12:00:00Z"),
   );
 export function timeLabel(minute: number) {
@@ -63,6 +75,7 @@ export function seed(today = localDate()): CalendarState {
     undo: null,
     recovery: null,
     settings: {
+      ...DEFAULT_CALENDAR_PREFERENCES,
       start: 1080,
       end: 1260,
       timezone: "Australia/Brisbane",
@@ -246,11 +259,15 @@ function place(
       const related = existing.find(
         (s) =>
           !s.done &&
+          !s.chosen &&
           s.start >= first &&
           s.tasks.some((t) => t.activityId === task.activityId),
       );
       if (related) {
-        const longest = Math.max(duration, related.duration);
+        const longest = Math.max(
+          duration,
+          ...related.tasks.map((t) => t.minutes),
+        );
         if (
           related.start + longest <= state.settings.end &&
           existing.every(
@@ -281,11 +298,16 @@ function place(
       }
     }
     if (conflict && day === 0) {
-      const pending = existing.filter((s) => !s.done && s.start >= first);
+      const pending = existing.filter(
+        (s) => !s.done && !s.chosen && s.start >= first,
+      );
       for (let begin = 0; begin < pending.length; begin++)
         for (let end = begin; end < pending.length; end++) {
           const group = pending.slice(begin, end + 1),
-            longest = Math.max(duration, ...group.map((s) => s.duration));
+            longest = Math.max(
+              duration,
+              ...group.flatMap((s) => s.tasks.map((t) => t.minutes)),
+            );
           const start = group[0].start,
             keys = new Set(group.map((s) => s.id));
           if (
@@ -687,6 +709,15 @@ export function updateSettings(
 ) {
   const next = copy(state);
   next.settings = validateSettings(settings);
+  validateRecurringHours(next.goals, next.settings);
+  if (
+    next.settings.start === state.settings.start &&
+    next.settings.end === state.settings.end &&
+    next.settings.timezone === state.settings.timezone
+  ) {
+    validateSchedule(next, today);
+    return commit(state, next, "Calendar settings");
+  }
   for (const date of new Set(
     next.tasks
       .filter((t) => t.status === "done" && t.date >= today)
@@ -737,11 +768,7 @@ export function updateSettings(
       next,
       representative,
       original.wasDone ? addDays(original.date, 1) : original.date,
-      { conflict: true },
-    );
-    const merged = next.tasks.some(
-      (t) =>
-        t.date === representative.date && t.slotId === representative.slotId,
+      { conflict: !original.chosen },
     );
     for (const member of original.tasks) {
       const task = next.tasks.find((t) => t.id === member.id)!;
@@ -751,11 +778,12 @@ export function updateSettings(
         slotId: representative.slotId,
       });
     }
-    if (original.chosen && !merged)
+    if (original.chosen)
       next.choices[`${representative.date}/${representative.slotId}`] =
         original.chosen.id;
   }
   moveDependents(next);
+  validateSchedule(next, today);
   return commit(state, next, "Planning settings");
 }
 function validateSettings(input: unknown): Settings {
@@ -772,27 +800,89 @@ function validateSettings(input: unknown): Settings {
       "Available hours must span at least 5 minutes within one day.",
     );
   try {
+    if (typeof s.timezone !== "string" || !s.timezone)
+      throw new Error("Missing timezone");
     new Intl.DateTimeFormat("en", { timeZone: s.timezone }).format();
   } catch {
     throw new Error("Choose a valid timezone.");
   }
-  return { start: s.start, end: s.end, timezone: s.timezone };
+  const language =
+    s.language === undefined
+      ? DEFAULT_CALENDAR_PREFERENCES.language
+      : s.language;
+  const showWeekNumbers =
+    s.showWeekNumbers === undefined
+      ? DEFAULT_CALENDAR_PREFERENCES.showWeekNumbers
+      : s.showWeekNumbers;
+  const weekStartsOn =
+    s.weekStartsOn === undefined
+      ? DEFAULT_CALENDAR_PREFERENCES.weekStartsOn
+      : s.weekStartsOn;
+  const holidayCalendar =
+    s.holidayCalendar === undefined
+      ? DEFAULT_CALENDAR_PREFERENCES.holidayCalendar
+      : s.holidayCalendar;
+  if (!INTERFACE_LANGUAGES.some((entry) => entry.value === language))
+    throw new Error("Choose a supported interface language.");
+  if (typeof showWeekNumbers !== "boolean")
+    throw new Error("Choose whether to show week numbers.");
+  if (!Number.isInteger(weekStartsOn) || weekStartsOn < 0 || weekStartsOn > 6)
+    throw new Error("Choose a valid first day of the week.");
+  if (!isHolidayCalendar(holidayCalendar))
+    throw new Error("Choose a supported public holiday calendar.");
+  return {
+    start: s.start,
+    end: s.end,
+    timezone: s.timezone,
+    language,
+    showWeekNumbers,
+    weekStartsOn,
+    holidayCalendar,
+  };
 }
-export function validateBackup(
-  input: unknown,
-  today = localDate(),
-): CalendarState {
+function validateRecurringHours(
+  goals: CalendarState["goals"],
+  settings: Settings,
+) {
+  const availableMinutes = settings.end - settings.start;
+  for (const goal of goals)
+    if (
+      goal.status === "active" &&
+      goal.recurrence?.templates.some((t) => t.minutes > availableMinutes)
+    )
+      throw new Error(
+        `Recurring steps for “${goal.name}” exceed your available hours. Increase the available window first.`,
+      );
+}
+function validateSchedule(state: CalendarState, today: string) {
+  for (const date of new Set(
+    state.tasks.filter((t) => t.date >= today).map((t) => t.date),
+  )) {
+    const slots = slotsFor(state, date);
+    if (
+      slots.some(
+        (s, i) =>
+          s.start < state.settings.start ||
+          s.start + s.duration > state.settings.end ||
+          (i > 0 && s.start < slots[i - 1].start + slots[i - 1].duration),
+      )
+    )
+      throw new Error(
+        "The backup schedule exceeds capacity or has overlapping slots.",
+      );
+  }
+}
+export function validateBackup(input: unknown, today?: string): CalendarState {
   const raw = input as CalendarState | null | undefined;
   if (
     !raw ||
     raw.version !== 1 ||
     !Array.isArray(raw.goals) ||
-    !Array.isArray(raw.tasks) ||
-    raw.goals.length > 100 ||
-    raw.tasks.length > 5000
+    !Array.isArray(raw.tasks)
   )
     throw new Error("This is not a supported calendar backup.");
   const settings = validateSettings(raw.settings);
+  today ??= localDate(settings.timezone);
   const goals = raw.goals.map((g) => {
     if (
       typeof g.id !== "string" ||
@@ -831,6 +921,7 @@ export function validateBackup(
   });
   if (new Set(goals.map((g) => g.id)).size !== goals.length)
     throw new Error("The backup has duplicate goals.");
+  validateRecurringHours(goals, settings);
   const tasks = raw.tasks.map((t) => {
     if (
       typeof t.id !== "string" ||
@@ -908,22 +999,7 @@ export function validateBackup(
   for (const [key, value] of Object.entries(raw.choices || {}))
     if (tasks.some((t) => `${t.date}/${t.slotId}` === key && t.id === value))
       next.choices[key] = value;
-  for (const date of new Set(
-    tasks.filter((t) => t.date >= today).map((t) => t.date),
-  )) {
-    const slots = slotsFor(next, date);
-    if (
-      slots.some(
-        (s, i) =>
-          s.start < next.settings.start ||
-          s.start + s.duration > next.settings.end ||
-          (i > 0 && s.start < slots[i - 1].start + slots[i - 1].duration),
-      )
-    )
-      throw new Error(
-        "The backup schedule exceeds capacity or has overlapping slots.",
-      );
-  }
+  validateSchedule(next, today);
   return next;
 }
 function validDate(date: unknown): date is string {
@@ -966,7 +1042,7 @@ function validDraft(input: unknown): input is PlannerDraft {
 export function importBackup(
   state: CalendarState,
   raw: unknown,
-  today = localDate(state.settings.timezone),
+  today?: string,
 ) {
   return commit(state, validateBackup(raw, today), "Backup import");
 }

@@ -1,0 +1,3 @@
+date-easter 1.0.3
+License: MIT
+https://github.com/commenthol/date-easter#readme

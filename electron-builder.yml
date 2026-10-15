@@ -1,6 +1,7 @@
 appId: com.ellenwang918.aigoalcalendar
 productName: Appa
 asar: true
+electronDist: node_modules/electron/dist
 directories:
   output: release
 files:
@@ -12,16 +13,19 @@ files:
   - third-party/**/*
   - "!**/*.map"
 win:
+  icon: build/appa.ico
   target:
     - target: nsis
       arch: [x64]
   artifactName: Appa-${version}-Windows-${arch}-Setup.${ext}
-  signAndEditExecutable: false
+  signExecutable: false
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  shortcutName: Appa
+  uninstallDisplayName: Appa
   deleteAppDataOnUninstall: false
 publish: null

@@ -132,7 +132,7 @@ else {
                     title: "Appa",
                     message: `Appa ${app.getVersion()}`,
                     detail:
-                      "A local, open-source personal planner. Connect your own eligible ChatGPT account for AI planning. Manual planning works offline. Calendar data is saved on this computer; use Settings & backup to keep a copy.",
+                      "A local, open-source personal planner. Connect your own eligible ChatGPT account for AI planning. Manual planning works offline. Calendar data is saved on this computer; use Settings → Backup to keep a copy.",
                   }),
               },
             ],

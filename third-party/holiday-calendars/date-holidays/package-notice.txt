@@ -1,0 +1,3 @@
+date-holidays 3.37.0
+License: (ISC AND CC-BY-3.0)
+https://github.com/commenthol/date-holidays

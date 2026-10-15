@@ -18,7 +18,7 @@ The calendar profile is local storage, not encrypted storage. Export backups reg
 
 ## Move from the browser prototype
 
-In the browser preview, open **Settings & backup → Export backup**. In the desktop app, choose **Settings & backup → Import backup**, inspect the summary, and restore. The desktop app never silently reads another browser's data or account credentials. Complete ChatGPT sign-in separately in the desktop app.
+In the browser preview, open **Settings → Backup → Export backup**. In the desktop app, choose **Settings → Backup → Import backup**, inspect the summary, and restore. The desktop app never silently reads another browser's data or account credentials. Complete ChatGPT sign-in separately in the desktop app.
 
 ## Build
 
@@ -29,6 +29,12 @@ npm run desktop:dist
 ```
 
 The Windows x64 NSIS installer is created in `release/`. `npm run desktop:pack` creates an unpacked application for local checks. Node.js is required for building from source, but is bundled into the installer for end users. The browser development preview remains available through `npm run dev`.
+
+Packaging copies the pinned official Electron runtime installed by `npm ci` from `node_modules/electron/dist`, avoiding a second runtime download and archive-extraction directory renames on Windows.
+
+The installer creates desktop and Start menu shortcuts named Appa and registers Appa in Windows Installed apps for uninstalling. Launching either shortcut opens the packaged executable and its bundled production service without a terminal or development server. Installation is per user by default. Keep the original app ID and profile location when building updates so existing calendars remain accessible.
+
+Windows executable resources retain Appa's name, version and calendar icon even in unsigned builds. `build/appa.svg` reuses the interface's Phosphor CalendarDots mark; `build/appa.ico` contains the Windows icon sizes. Code signing is disabled separately from resource editing.
 
 Source code is strict TypeScript. `npm run typecheck` checks the React interface and Node/Electron modules with their respective module-resolution settings. `npm run build:runtime` compiles the desktop entry, local service, scheduling module and sandboxed CommonJS preload into `dist/runtime/`. The package entry is `dist/runtime/desktop/main.js`, and its preload is `dist/runtime/desktop/preload.cjs`. The desktop never executes TypeScript source or requires a development-time TypeScript loader. The existing regression suite runs against the compiled runtime.
 

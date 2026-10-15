@@ -1,3 +1,4 @@
+import { useInterfaceText } from "./InterfaceLanguage";
 import { useEffect, useState } from "react";
 import type {
   CalendarState,
@@ -24,6 +25,7 @@ import { Dialog, Dot } from "./ui";
 import { api, session } from "./api";
 import * as cal from "./calendar";
 import { desktop, localPlace } from "./environment";
+import { CalendarSettings } from "./CalendarSettings";
 const minuteInput = (value: number) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 const parseMinute = (value: string) => {
@@ -38,6 +40,8 @@ interface PlannerProps {
   onApprove: (plan: Plan, options: ScheduleOptions) => void;
 }
 export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
+  const t = useInterfaceText();
+
   const [intention, setIntention] = useState(state.draft?.intention || ""),
     [plan, setPlan] = useState<Plan | null>(state.draft?.plan || null),
     [answer, setAnswer] = useState(""),
@@ -48,6 +52,10 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
     [error, setError] = useState(""),
     [link, setLink] = useState(""),
     [placement, setPlacement] = useState("active");
+  const selectedModel =
+    connection?.models.find((item) => item.id === model)?.id ||
+    connection?.models[0]?.id ||
+    "";
   useEffect(() => {
     let alive = true;
     async function refresh() {
@@ -112,7 +120,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
         : intention;
       const result = await api("plan", {
         intention: text,
-        model: model || connection?.models[0]?.id,
+        model: selectedModel || undefined,
       });
       if (plan?.clarification) setIntention(text);
       setPlan(result.plan);
@@ -163,23 +171,26 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
   return (
     <Dialog
       title={
-        plan && !plan.clarification ? "Make this plan yours" : "Plan a goal"
+        plan && !plan.clarification
+          ? t("Make this plan yours")
+          : t("Plan a goal")
       }
       onClose={onClose}
       wide
     >
       <div className="dialog-body planner-body">
         <p className="muted intro">
-          A big intention. A few small steps. You decide what goes on your
-          calendar.
+          {t(
+            "A big intention. A few small steps. You decide what goes on your calendar.",
+          )}
         </p>
         <label className="field">
-          What would you like to work toward?
+          {t("What would you like to work toward?")}
           <textarea
             value={intention}
             maxLength={3600}
             rows={3}
-            placeholder="I want to launch my design portfolio…"
+            placeholder={t("I want to launch my design portfolio…")}
             onChange={(event) => setIntention(event.target.value)}
             disabled={!!busy}
           />
@@ -189,8 +200,8 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
             <Sparkle size={20} />
             <strong>
               {connection?.connected
-                ? "ChatGPT connected"
-                : "Use your ChatGPT plan"}
+                ? t("ChatGPT connected")
+                : t("Use your ChatGPT plan")}
             </strong>
             {connection?.connected && (
               <CheckCircle className="teal-text" size={19} />
@@ -199,12 +210,13 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
           {connection?.connected ? (
             <>
               <p className="small muted">
-                {connection.account?.label} · Uses your existing plan limits.
+                {connection.account?.label}{" "}
+                {t("· Uses your existing plan limits.")}
               </p>
               <label className="field small">
-                Model
+                {t("Model")}
                 <select
-                  value={model || connection.models[0]?.id || ""}
+                  value={selectedModel}
                   onChange={(event) => setModel(event.target.value)}
                   disabled={!!busy}
                 >
@@ -234,24 +246,26 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                   }
                 }}
               >
-                Disconnect
+                {t("Disconnect")}
               </button>
             </>
           ) : (
             <>
               <p className="small muted">
-                Connect your own eligible Plus or Pro account. Your calendar
-                stays {localPlace}. Your goal text goes to OpenAI when you
-                create a plan.
+                {t(
+                  "Connect your own eligible Plus or Pro account. Your calendar stays",
+                )}{" "}
+                {localPlace}
+                {t(". Your goal text goes to OpenAI when you create a plan.")}
               </p>
               {connection && connection.accounts.length > 0 && (
                 <label className="field small">
-                  Account
+                  {t("Account")}
                   <select
                     value={accountId}
                     onChange={(event) => setAccountId(event.target.value)}
                   >
-                    <option value="">Connect another account</option>
+                    <option value="">{t("Connect another account")}</option>
                     {connection.accounts.map((item) => (
                       <option key={item.id} value={item.id}>
                         {item.label}
@@ -268,14 +282,14 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Continue to ChatGPT
+                    {t("Continue to ChatGPT")}
                   </a>
                   <button
                     className="secondary"
                     disabled={!!busy}
                     onClick={checkConnection}
                   >
-                    {busy === "check" ? "Checking…" : "I’ve signed in"}
+                    {busy === "check" ? t("Checking…") : t("I’ve signed in")}
                   </button>
                 </div>
               ) : (
@@ -285,20 +299,20 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                   disabled={!!busy || !connection}
                 >
                   {busy === "connect"
-                    ? "Preparing sign-in…"
-                    : "Sign in with ChatGPT"}
+                    ? t("Preparing sign-in…")
+                    : t("Sign in with ChatGPT")}
                 </button>
               )}
               <p className="fine-print">
                 {desktop
-                  ? "Reconnect after you quit and reopen the app."
-                  : "Reconnect after the local app restarts."}{" "}
+                  ? t("Reconnect after you quit and reopen the app.")
+                  : t("Reconnect after the local app restarts.")}{" "}
                 <a
                   href="https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  How it works
+                  {t("How it works")}
                 </a>
               </p>
             </>
@@ -311,7 +325,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
               <input
                 value={answer}
                 onChange={(event) => setAnswer(event.target.value)}
-                placeholder="A little more context…"
+                placeholder={t("A little more context…")}
                 maxLength={300}
               />
             </label>
@@ -330,10 +344,10 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
               }
             >
               {busy === "plan"
-                ? "Creating your plan…"
+                ? t("Creating your plan…")
                 : plan?.clarification
-                  ? "Continue planning"
-                  : "Create an AI plan"}
+                  ? t("Continue planning")
+                  : t("Create an AI plan")}
               <Sparkle size={17} />
             </button>
             <button
@@ -349,7 +363,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                 })
               }
             >
-              Write a plan myself
+              {t("Write a plan myself")}
             </button>
           </div>
         )}
@@ -357,7 +371,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
           <div className="plan-editor">
             <div className="two-fields">
               <label className="field">
-                Goal name
+                {t("Goal name")}
                 <input
                   value={plan.goalName}
                   maxLength={120}
@@ -367,7 +381,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                 />
               </label>
               <label className="field">
-                Goal type
+                {t("Goal type")}
                 <select
                   value={plan.kind}
                   onChange={(event) =>
@@ -385,14 +399,14 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                     })
                   }
                 >
-                  <option value="project">Project</option>
-                  <option value="recurring">Recurring activity</option>
+                  <option value="project">{t("Project")}</option>
+                  <option value="recurring">{t("Recurring activity")}</option>
                 </select>
               </label>
             </div>
             {plan.kind === "recurring" && (
               <label className="field">
-                Sessions per week
+                {t("Sessions per week")}
                 <input
                   type="number"
                   min="1"
@@ -405,8 +419,9 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
               </label>
             )}
             <p className="small muted">
-              Aim for 5–25 minutes per step. Larger steps can use up to 60
-              minutes if they fit your available hours.
+              {t(
+                "Aim for 5–25 minutes per step. Larger steps can use up to 60 minutes if they fit your available hours.",
+              )}
             </p>
             <div className="editable-tasks">
               {plan.tasks.map((task, index) => (
@@ -414,12 +429,14 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                   <span className="task-index">{index + 1}</span>
                   <div className="task-fields">
                     <label className="field">
-                      <span className="sr-only">Step {index + 1}</span>
+                      <span className="sr-only">
+                        {t("Step")} {index + 1}
+                      </span>
                       <input
-                        aria-label={`Step ${index + 1} title`}
+                        aria-label={t("Step {v0} title", { v0: index + 1 })}
                         value={task.title}
                         maxLength={180}
-                        placeholder="A small, specific action"
+                        placeholder={t("A small, specific action")}
                         onChange={(event) =>
                           editTask(index, { title: event.target.value })
                         }
@@ -427,9 +444,11 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                     </label>
                     {plan.kind === "project" && index > 0 && (
                       <label className="dependency-field">
-                        After
+                        {t("After")}
                         <select
-                          aria-label={`Step ${index + 1} prerequisite`}
+                          aria-label={t("Step {v0} prerequisite", {
+                            v0: index + 1,
+                          })}
                           value={task.dependsOn[0] ?? ""}
                           onChange={(event) =>
                             editTask(index, {
@@ -440,10 +459,11 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                             })
                           }
                         >
-                          <option value="">No prerequisite</option>
+                          <option value="">{t("No prerequisite")}</option>
                           {plan.tasks.slice(0, index).map((item, i) => (
                             <option value={i} key={i}>
-                              {i + 1}. {item.title || "Untitled step"}
+                              {i + 1}
+                              {t(".")} {item.title || t("Untitled step")}
                             </option>
                           ))}
                         </select>
@@ -451,9 +471,11 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                     )}
                   </div>
                   <label className="field duration-field">
-                    <span className="sr-only">Step {index + 1} minutes</span>
+                    <span className="sr-only">
+                      {t("Step")} {index + 1} {t("minutes")}
+                    </span>
                     <input
-                      aria-label={`Step ${index + 1} minutes`}
+                      aria-label={t("Step {v0} minutes", { v0: index + 1 })}
                       type="number"
                       min="5"
                       max="60"
@@ -462,12 +484,12 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                         editTask(index, { minutes: Number(event.target.value) })
                       }
                     />
-                    <span>min</span>
+                    <span>{t("min")}</span>
                   </label>
                   <button
                     className="icon-button"
                     onClick={() => removeTask(index)}
-                    aria-label={`Remove step ${index + 1}`}
+                    aria-label={t("Remove step {v0}", { v0: index + 1 })}
                   >
                     <Trash size={18} />
                   </button>
@@ -488,23 +510,25 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
               }
             >
               <Plus size={16} />
-              Add a step
+              {t("Add a step")}
             </button>
             <div className="capacity-box">
               <label className="field small">
-                Where should this plan go?
+                {t("Where should this plan go?")}
                 <select
                   value={placement}
                   onChange={(event) => setPlacement(event.target.value)}
                 >
-                  <option value="active">Add to active goals</option>
-                  <option value="later">Save in Later</option>
+                  <option value="active">{t("Add to active goals")}</option>
+                  <option value="later">{t("Save in Later")}</option>
                 </select>
               </label>
               <p className="fine-print">
                 {placement === "later"
-                  ? "Keep the steps saved without scheduling them yet."
-                  : "Schedule alongside your other active goals, within your available hours."}
+                  ? t("Keep the steps saved without scheduling them yet.")
+                  : t(
+                      "Schedule alongside your other active goals, within your available hours.",
+                    )}
               </p>
             </div>
             <div className="dialog-actions">
@@ -515,10 +539,12 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                   setError("");
                 }}
               >
-                Back to intention
+                {t("Back to intention")}
               </button>
               <button className="primary" onClick={approve}>
-                {placement === "later" ? "Save in Later" : "Approve & schedule"}
+                {placement === "later"
+                  ? t("Save in Later")
+                  : t("Approve & schedule")}
                 <Check size={17} />
               </button>
             </div>
@@ -526,12 +552,12 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
         )}
         {error && (
           <p className="inline-error" role="alert">
-            {error}
+            {t(error)}
           </p>
         )}
         <p className="fine-print">
-          Your draft is saved {localPlace}. Nothing is scheduled until you
-          approve.
+          {t("Your draft is saved")} {localPlace}
+          {t(". Nothing is scheduled until you approve.")}
         </p>
       </div>
     </Dialog>
@@ -552,10 +578,12 @@ export function Settings({
   onExport,
   onImport,
 }: SettingsProps) {
+  const t = useInterfaceText();
+
   const [settings, setSettings] = useState(state.settings),
     [error, setError] = useState("");
   return (
-    <Dialog title="Make room for your goals" onClose={onClose}>
+    <Dialog title={t("Settings")} onClose={onClose} wide>
       <form
         className="dialog-body"
         onSubmit={(event) => {
@@ -567,94 +595,82 @@ export function Settings({
           }
         }}
       >
-        <p className="muted intro">Choose when Appa can schedule your goals.</p>
-        <div className="two-fields">
-          <label className="field">
-            Available from
-            <input
-              type="time"
-              value={minuteInput(settings.start)}
-              onChange={(event) =>
-                setSettings({
-                  ...settings,
-                  start: parseMinute(event.target.value),
-                })
-              }
-              required
-            />
-          </label>
-          <label className="field">
-            Until
-            <input
-              type="time"
-              value={minuteInput(settings.end)}
-              onChange={(event) =>
-                setSettings({
-                  ...settings,
-                  end: parseMinute(event.target.value),
-                })
-              }
-              required
-            />
-          </label>
-        </div>
-        <label className="field">
-          Timezone
-          <select
-            value={settings.timezone}
-            onChange={(event) =>
-              setSettings({ ...settings, timezone: event.target.value })
-            }
-          >
-            {[
-              ...new Set([
-                "Australia/Brisbane",
-                "Australia/Sydney",
-                "Australia/Perth",
-                "Pacific/Auckland",
-                "Europe/London",
-                "America/New_York",
-                settings.timezone,
-              ]),
-            ].map((zone) => (
-              <option key={zone}>{zone}</option>
-            ))}
-          </select>
-        </label>
-        <p className="small muted">
-          Pending steps are rearranged to fit. When time is tight, a shared slot
-          lets you choose one activity.
-        </p>
-        {error && (
-          <p className="inline-error" role="alert">
-            {error}
+        <CalendarSettings settings={settings} onChange={setSettings} />
+        <fieldset className="settings-section">
+          <legend>{t("Goal settings")}</legend>
+          <p className="small muted">
+            {t("Choose when Appa can schedule your goals.")}
           </p>
-        )}
-        <div className="dialog-actions">
-          <button type="button" className="secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="primary" type="submit">
-            Save settings
-          </button>
-        </div>
-        <div className="backup-section">
-          <h3>Keep a copy</h3>
+          <div className="two-fields">
+            <label className="field">
+              {t("Available from")}
+              <input
+                type="time"
+                value={minuteInput(settings.start)}
+                onChange={(event) =>
+                  setSettings({
+                    ...settings,
+                    start: parseMinute(event.target.value),
+                  })
+                }
+                required
+              />
+            </label>
+            <label className="field">
+              {t("Until")}
+              <input
+                type="time"
+                value={minuteInput(settings.end)}
+                onChange={(event) =>
+                  setSettings({
+                    ...settings,
+                    end: parseMinute(event.target.value),
+                  })
+                }
+                required
+              />
+            </label>
+          </div>
+          <p className="small muted">
+            {t(
+              "Pending steps are rearranged to fit. When time is tight, a shared slot lets you choose one activity.",
+            )}
+          </p>
+        </fieldset>
+        <fieldset className="settings-section">
+          <legend>{t("Backup")}</legend>
           <p className="small muted">
             {desktop
-              ? "Your goals and progress are saved on this computer. Export a backup before reinstalling or moving to another computer. You can import a backup from the browser prototype here."
-              : "Your goals and progress live in this browser on this device. Export a backup before clearing browser data."}
+              ? t(
+                  "Your goals and progress are saved on this computer. Export a backup before reinstalling or moving to another computer. You can import a backup from the browser prototype here.",
+                )
+              : t(
+                  "Your goals and progress live in this browser on this device. Export a backup before clearing browser data.",
+                )}
           </p>
           <div className="connect-actions">
             <button type="button" className="secondary" onClick={onExport}>
               <DownloadSimple size={17} />
-              Export backup
+              {t("Export backup")}
             </button>
             <button type="button" className="secondary" onClick={onImport}>
               <UploadSimple size={17} />
-              Import backup
+              {t("Import backup")}
             </button>
           </div>
+        </fieldset>
+        {error && (
+          <p className="inline-error" role="alert">
+            {t(error)}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            {t("Cancel")}
+          </button>
+          <button className="primary" type="submit">
+            {t("Save settings")}
+          </button>
         </div>
       </form>
     </Dialog>
@@ -671,6 +687,8 @@ export function GoalDetails({
   onClose: () => void;
   onActivate: () => void;
 }) {
+  const t = useInterfaceText();
+
   const [error, setError] = useState("");
   const tasks = state.tasks.filter(
     (task) =>
@@ -686,19 +704,22 @@ export function GoalDetails({
       <div className="dialog-body">
         <div className="goal-status">
           <Dot color={goal.color} />
-          {goal.status === "active" ? "Active goal" : "Saved for later"}
-          {goal.recurrence && ` · ${goal.recurrence.perWeek} sessions / week`}
+          {goal.status === "active" ? t("Active goal") : t("Saved for later")}
+          {goal.recurrence &&
+            t(" · {v0} sessions / week", { v0: goal.recurrence.perWeek })}
         </div>
         <p className="muted">
-          {tasks.filter((task) => task.status === "done").length} steps
-          completed · {tasks.filter((task) => task.status === "pending").length}{" "}
-          pending
+          {tasks.filter((task) => task.status === "done").length}{" "}
+          {t("steps completed ·")}{" "}
+          {tasks.filter((task) => task.status === "pending").length}{" "}
+          {t("pending")}
         </p>
         {goal.status === "later" && tasks.length > 0 && (
           <div className="capacity-box goal-activation">
             <p className="small muted">
-              Add this saved goal to your calendar alongside your other active
-              goals. Steps will fit within your available hours.
+              {t(
+                "Add this saved goal to your calendar alongside your other active goals. Steps will fit within your available hours.",
+              )}
             </p>
             <button
               className="primary full"
@@ -710,11 +731,11 @@ export function GoalDetails({
                 }
               }}
             >
-              Make this goal active
+              {t("Make this goal active")}
             </button>
             {error && (
               <p className="inline-error" role="alert">
-                {error}
+                {t(error)}
               </p>
             )}
           </div>
@@ -731,7 +752,7 @@ export function GoalDetails({
                 <span>
                   {task.title}
                   <small>
-                    {task.minutes} min
+                    {task.minutes} {t("min")}
                     {goal.status === "active"
                       ? ` · ${cal.dateLabel(task.date, { day: "numeric", month: "short" })}`
                       : ""}
@@ -742,12 +763,14 @@ export function GoalDetails({
           </ul>
         ) : (
           <p className="muted">
-            This goal has no steps yet. Plan it when you’re ready.
+            {t("This goal has no steps yet. Plan it when you’re ready.")}
           </p>
         )}
         {history.length > 0 && (
           <details className="missed-history">
-            <summary>{history.length} missed occurrences</summary>
+            <summary>
+              {history.length} {t("missed occurrences")}
+            </summary>
             <ul className="goal-task-list">
               {history.map((task) => (
                 <li key={task.id}>
@@ -759,10 +782,10 @@ export function GoalDetails({
                         day: "numeric",
                         month: "short",
                       })}{" "}
-                      ·{" "}
+                      {t("·")}{" "}
                       {task.status === "skipped"
-                        ? "Skipped after another choice"
-                        : "Consolidated on return"}
+                        ? t("Skipped after another choice")
+                        : t("Consolidated on return")}
                     </small>
                   </span>
                 </li>

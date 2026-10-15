@@ -12,6 +12,8 @@ The screenshot shows the current source with example tasks. New desktop installa
 
 Download the Windows preview installer from [GitHub Releases](https://github.com/ellenWang918/appa/releases). End users do not need Node.js when using the installer.
 
+Run the Windows setup file to install Appa for your Windows account. Setup adds **Appa** shortcuts to the desktop and Start menu. Double-click the desktop shortcut, or search for Appa in Start, to open the standalone app. No terminal or development server is needed. To remove the app, use **Windows Settings → Apps → Installed apps → Appa → Uninstall**.
+
 Appa was previously named AI Goal Calendar. Version 0.1.0 retains that name in its published installer; builds from the current source use Appa. The repository is now `ellenWang918/appa`, and existing local goals, drafts and settings are preserved.
 
 The first release is unsigned and has no automatic updater. Windows may show an unrecognized-publisher warning; code signing is planned for a later release. Download only from this repository's Releases page.
@@ -19,7 +21,7 @@ The first release is unsigned and has no automatic updater. Windows may show an 
 ## Start with one goal
 
 1. Open Appa. A new installation starts with an empty calendar and your computer's timezone.
-2. Available hours start at 18:00–21:00. You can change them anytime in **Settings & backup**. Scheduling uses these hours without a separate daily budget.
+2. Available hours start at 18:00–21:00. You can change them anytime in **Settings → Goal settings**. Scheduling uses these hours without a separate daily budget.
 3. Describe your intention in the bottom input and submit it, or choose **Plan a goal**. In the planner, connect your own ChatGPT account and select **Create an AI plan**, or choose **Write a plan myself** without signing in.
 4. Review and edit the proposed steps. Choose **Add to active goals** or **Save in Later**, then approve.
 5. Use **Today** to return to the current date, then select a task for its details. When a slot offers alternatives, choose one. Mark work complete only when you finish it.
@@ -39,7 +41,12 @@ Live account consent and real inference require an eligible user's authorization
 ## Calendar behavior
 
 - Day, Week and Month views use the same local calendar. Navigate dates with the left month picker or the header arrows; **Today** returns to the current date.
-- Week shows weekdays by default and automatically includes weekends when selected or when they contain scheduled work. Select **5 days** to show the full week.
+- Scroll Month view up or down to browse earlier and later months. The heading and mini calendar follow the visible month; **Today** jumps back to this month.
+- Week always shows Monday through Sunday, with a full-day timeline from 00:00 to 24:00.
+- Day and Week open at the current time. **Today** returns the timeline there after you scroll; it stays under your control as the clock advances.
+- Day places an hourly timeline on the left and its task list on the right, with independent scrolling. On narrow screens, the task list sits below the timeline.
+- Day's header shows the surrounding Monday–Sunday week. Select any date to update both panels.
+- Drag the divider beside Day's task list to resize it. Your width is remembered; double-click the divider to reset it. Keyboard users can focus it and use Left/Right arrows.
 - Describe an intention in the floating input to open the planner. Tasks are scheduled only after approval.
 - Select a task to open its details, choose an activity in a shared slot, or mark it complete. The selected task keeps its outline after the details close.
 - Tasks aim at 5–25 minutes; genuine prerequisites preserve order. Week rows expand for short steps so consecutive five-minute tasks remain readable.
@@ -52,7 +59,9 @@ The interface uses a light grey calendar, a left month navigator and a floating 
 
 ## Your data
 
-Goals, drafts, settings and progress are stored in the desktop app's local profile. There is no maintainer-operated AI server, analytics or cloud synchronization. Local data is not encrypted by this app. Keep private backups through **Settings & backup → Export backup**.
+Goals, drafts, settings and progress are stored in the desktop app's local profile. There is no maintainer-operated AI server, analytics or cloud synchronization. Local data is not encrypted by this app. Keep private backups through **Settings → Backup → Export backup**.
+
+**Settings → Calendar settings** contains timezone, interface language (English for now), week numbers, the first day of the week, and public holidays. Holidays default from the timezone; select a country and region to override them, or choose None. Holiday rules are bundled locally and work offline. Local show days and one-off changes may not be included; holidays are reference labels and do not block goal scheduling.
 
 To move from the browser prototype, export there and import the file in the desktop app. Your browser and desktop calendars are separate; importing is an explicit choice. See [desktop storage and recovery](docs/desktop.md) and [security and privacy](SECURITY.md).
 

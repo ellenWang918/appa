@@ -1,12 +1,14 @@
 {
   "name": "appa",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "npm run build:runtime && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.runtime.json --noEmit",
     "build:runtime": "tsc -p tsconfig.runtime.json",
+    "generate:holidays": "node scripts/generate-holiday-catalog.mjs",
+    "extract:messages": "node scripts/extract-interface-messages.mjs",
     "dev": "vite",
     "build": "npm run typecheck && npm run build:runtime && vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
@@ -25,6 +27,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "5.0.4",
+    "date-holidays": "3.37.0",
     "electron": "44.7.0",
     "electron-builder": "26.15.3",
     "prettier": "^3.9.10",

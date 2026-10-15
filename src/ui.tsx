@@ -1,3 +1,4 @@
+import { useInterfaceText } from "./InterfaceLanguage";
 import { useEffect, useRef } from "react";
 import { X } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
@@ -17,6 +18,8 @@ export function Dialog({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const t = useInterfaceText();
+
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -42,7 +45,7 @@ export function Dialog({
         <button
           className="icon-button"
           onClick={onClose}
-          aria-label="Close dialog"
+          aria-label={t("Close dialog")}
         >
           <X size={20} />
         </button>

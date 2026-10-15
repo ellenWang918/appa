@@ -4,7 +4,23 @@ export interface Settings {
   start: number;
   end: number;
   timezone: string;
+  language: string;
+  showWeekNumbers: boolean;
+  weekStartsOn: number;
+  holidayCalendar: string;
 }
+export interface HolidayLocation {
+  country: string;
+  state?: string;
+  region?: string;
+  label: string;
+}
+export interface PublicHoliday {
+  name: string;
+  startMinute: number;
+  endMinute: number;
+}
+export type HolidayLookup = (date: string) => readonly PublicHoliday[];
 export interface PlanTask {
   title: string;
   minutes: number;

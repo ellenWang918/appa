@@ -1,0 +1,3 @@
+date-chinese 2.1.4
+License: MIT
+https://github.com/commenthol/date-chinese
