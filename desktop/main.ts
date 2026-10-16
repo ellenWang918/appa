@@ -1,10 +1,11 @@
-import { app, BrowserWindow, Menu, dialog, shell } from "electron";
+import { app, BrowserWindow, Menu, dialog, shell, safeStorage } from "electron";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { startLocalApp } from "./local-server.js";
 import { isAllowedExternal } from "./policy.js";
 import { errorMessage } from "../src/errors.js";
+import { createCredentialStore } from "../server/credential-store.js";
 
 app.setName("Appa");
 // Retain the original profile and installer identity across the Appa rename.
@@ -31,6 +32,17 @@ else {
         staticRoot: path.join(app.getAppPath(), "dist", "client"),
         dataRoot: app.getPath("userData"),
         deviceSecret,
+        credentialStore: createCredentialStore(
+          path.join(dataRoot, "connection", "credentials.bin"),
+          {
+            isEncryptionAvailable: () =>
+              safeStorage.isEncryptionAvailable() &&
+              (process.platform !== "linux" ||
+                safeStorage.getSelectedStorageBackend() !== "basic_text"),
+            encryptString: (value) => safeStorage.encryptString(value),
+            decryptString: (value) => safeStorage.decryptString(value),
+          },
+        ),
       }));
       mainWindow = new BrowserWindow({
         width: 1440,

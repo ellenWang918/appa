@@ -22,19 +22,21 @@ The first release is unsigned and has no automatic updater. Windows may show an 
 
 1. Open Appa. A new installation starts with an empty calendar and your computer's timezone.
 2. Available hours start at 18:00–21:00. You can change them anytime in **Settings → Goal settings**. Scheduling uses these hours without a separate daily budget.
-3. Describe your intention in the bottom input and submit it, or choose **Plan a goal**. In the planner, connect your own ChatGPT account and select **Create an AI plan**, or choose **Write a plan myself** without signing in.
+3. Describe your intention in the bottom input and submit it, or choose **Plan a goal**. Sign in once in **Settings → User**, then select **Create an AI plan** in the planner, or choose **Write a plan myself** without signing in.
 4. Review and edit the proposed steps. Choose **Add to active goals** or **Save in Later**, then approve.
 5. Use **Today** to return to the current date, then select a task for its details. When a slot offers alternatives, choose one. Mark work complete only when you finish it.
 
 Open a saved goal in **Later** and choose **Make this goal active** whenever you are ready. More than two goals can be active; scheduling fits within your available hours.
 
+Open an active goal and choose **Edit goal** to change its name, pending steps, durations, prerequisites or recurrence. Completed work stays read-only. Saved edits support Undo in the current session.
+
 ## Bring your own ChatGPT account
 
-Choose **Sign in with ChatGPT → Continue to ChatGPT**. The app opens your system browser. Complete sign-in and consent there, return to the app, and choose **I've signed in**. Available models come from your account.
+Open **Settings → User** and choose **Sign in with ChatGPT → Continue to ChatGPT**. The app opens your system browser. Complete sign-in and consent there, return to the app, and choose **I've signed in**. Available models come from your account.
 
 ChatGPT plan usage depends on account eligibility and shares your existing plan limits. This app does not provide an AI subscription or promise support for every provider. The initial integration supports eligible ChatGPT Plus and Pro accounts through OpenAI's documented open-source/local-app flow. See the [official overview](https://developers.openai.com/siwc/token-sharing-open-source) and [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
 
-OAuth access and refresh tokens stay in the local main process's memory. **Reconnect after quitting and reopening the app.** Account registration metadata and a stable installation ID are saved locally, without tokens. Your goal text and clarification are sent directly to OpenAI only when you request AI planning. Manual planning and the calendar work offline.
+The desktop app securely remembers your sign-in using Windows-protected encryption and renews it automatically after reopening. Use **Settings → User → Sign out** to remove the saved session. OpenAI may require sign-in again if access is revoked or the renewable session expires. Tokens are available only to the main process; they are excluded from calendar backups and browser storage. Account registration metadata and a stable installation ID are saved separately. The browser development preview keeps credentials in memory only. Your goal text and clarification are sent directly to OpenAI only when you request AI planning. Manual planning and the calendar work offline.
 
 Live account consent and real inference require an eligible user's authorization. Automated tests cover protocol and application boundaries; they do not replace live account verification.
 
@@ -49,6 +51,7 @@ Live account consent and real inference require an eligible user's authorization
 - Drag the divider beside Day's task list to resize it. Your width is remembered; double-click the divider to reset it. Keyboard users can focus it and use Left/Right arrows.
 - Describe an intention in the floating input to open the planner. Tasks are scheduled only after approval.
 - Select a task to open its details, choose an activity in a shared slot, or mark it complete. The selected task keeps its outline after the details close.
+- Task details float beside the event, keeping the calendar usable. Choose **Edit** to change its name, date and start/end times in the same card, then **Update** to save or **Cancel** to discard the edit. Duration follows the time range; scheduling checks and Undo still apply.
 - Tasks aim at 5–25 minutes; genuine prerequisites preserve order. Week rows expand for short steps so consecutive five-minute tasks remain readable.
 - Shared slots reserve the longest alternative until you select one, then use that activity's duration. Selection alone does not complete work.
 - Completing a shared choice skips competing recurring occurrences for that slot. Unchosen project work stays pending, and future recurring sessions keep their normal cadence.
@@ -101,6 +104,8 @@ Application code uses strict TypeScript: React components in `.tsx`, scheduling 
 | `tests/` | Scheduling, backup, desktop security and hosting regression checks |
 
 ## Contribute
+
+See [DESIGN.md](DESIGN.md) for the approved typography scale and reusable interface text styles.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Report reproducible bugs through [Issues](https://github.com/ellenWang918/appa/issues). Read [SECURITY.md](SECURITY.md) before reporting vulnerabilities. Never upload tokens, authorization URLs, account registration files, personal backups or private goal text.
 

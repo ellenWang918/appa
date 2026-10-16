@@ -1,5 +1,5 @@
 import { useInterfaceText } from "./InterfaceLanguage";
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties, RefObject, MouseEvent } from "react";
 import { Check, LockSimple } from "@phosphor-icons/react";
 import { clockTime } from "./CalendarViews";
 import type { CalendarState, HolidayLookup, Slot } from "./types";
@@ -30,7 +30,7 @@ export function CalendarTimeline({
   holidays: HolidayLookup;
   currentMinute: number;
   onDate: (date: string) => void;
-  onSlot: (slot: Slot) => void;
+  onSlot: (slot: Slot, anchor: HTMLElement) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
   gridRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -44,8 +44,8 @@ export function CalendarTimeline({
   const shortestSlot = slotsByDay
     .flatMap(({ slots }) => slots)
     .reduce((minutes, slot) => Math.min(minutes, slot.duration), 60);
-  // Keep consecutive short steps readable without overlapping their cards.
-  const hourHeight = Math.max(70, Math.ceil((24 * 60) / shortestSlot));
+  // Reserve at least 20px per short step while keeping empty hours compact.
+  const hourHeight = Math.max(56, Math.ceil((20 * 60) / shortestSlot));
   const currentDayIndex = dates.indexOf(today);
   const gridStyle = {
     "--day-count": dates.length,
@@ -129,7 +129,7 @@ export function CalendarTimeline({
                     (slots[index + 1]?.start ?? timelineEnd) - slot.start
                   }
                   selected={slot.tasks.some((task) => task.id === selectedTask)}
-                  onClick={() => onSlot(slot)}
+                  onClick={(event) => onSlot(slot, event.currentTarget)}
                 />
               ))}
             </div>
@@ -139,7 +139,7 @@ export function CalendarTimeline({
               className="current-time-indicator"
               role="img"
               aria-label={t("Current time: {v0}", {
-                v0: cal.timeLabel(currentMinute),
+                v0: clockTime(currentMinute),
               })}
               style={
                 {
@@ -152,7 +152,7 @@ export function CalendarTimeline({
                 className="current-time-label"
                 dateTime={clockTime(currentMinute)}
               >
-                {cal.timeLabel(currentMinute).toUpperCase()}
+                {clockTime(currentMinute)}
               </time>
               <span className="current-time-line" aria-hidden="true" />
               <span className="current-time-today" aria-hidden="true" />
@@ -173,7 +173,7 @@ function CalendarEvent({
 }: {
   slot: Slot;
   state: CalendarState;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   available: number;
   selected: boolean;
 }) {

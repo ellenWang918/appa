@@ -34,7 +34,8 @@ import {
 } from "@phosphor-icons/react";
 import * as cal from "./calendar";
 import { Planner, Settings, GoalDetails } from "./Dialogs";
-import { Dialog, Dot } from "./ui";
+import { Dialog, Dot, IconButton } from "./ui";
+import { TaskCard } from "./TaskCard";
 import { desktop } from "./environment";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
@@ -111,6 +112,7 @@ export function App() {
     ),
     [monthScrollRequest, setMonthScrollRequest] = useState(0),
     [detailsOpen, setDetailsOpen] = useState(false),
+    [taskAnchor, setTaskAnchor] = useState<HTMLElement | null>(null),
     [composer, setComposer] = useState(""),
     [week, setWeek] = useState(() =>
       cal.weekStart(
@@ -251,45 +253,16 @@ export function App() {
     );
   }, [timelineDate, view, state.settings.timezone, scrollToNowRequest]);
   const daySlots = cal.slotsFor(state, selectedDay),
-    plannedMinutes = cal.plannedMinutesFor(state, selectedDay),
-    remaining = daySlots
-      .flatMap((slot) => slot.tasks)
-      .filter((task) => task.status === "pending");
-  const nextTask =
-    state.tasks.find(
-      (task) =>
-        task.id === selectedTask &&
-        task.date === selectedDay &&
-        task.status === "pending",
-    ) ||
-    remaining.find(
-      (task) =>
-        !cal.isBlocked(state, task) &&
-        daySlots.find((slot) => slot.id === task.slotId)?.tasks.length === 1,
-    ) ||
-    remaining.find(
-      (task) =>
-        !cal.isBlocked(state, task) &&
-        daySlots.find((slot) => slot.id === task.slotId)?.chosen?.id ===
-          task.id,
-    );
-  const future = state.tasks
-    .filter(
-      (task) =>
-        task.status === "pending" &&
-        task.date > selectedDay &&
-        cal.goalFor(state, task)?.status === "active",
-    )
-    .sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start)
-    .slice(0, 2);
-  const shared = daySlots.filter((slot) => slot.tasks.length > 1 && !slot.done);
+    plannedMinutes = cal.plannedMinutesFor(state, selectedDay);
   const goal = state.goals.find((item) => item.id === goalId);
+  const cardTask = state.tasks.find((task) => task.id === selectedTask);
   const complete = (task: Task) =>
     change(
       (previous) => cal.completeTask(previous, task.id, today),
       "Progress saved.",
     );
   function goToday() {
+    setDetailsOpen(false);
     setSelectedDay(today);
     setWeek(cal.weekStart(today, state.settings.weekStartsOn));
     setMiniMonth(monthStart(today));
@@ -299,6 +272,7 @@ export function App() {
     setScrollToNowRequest((request) => request + 1);
   }
   function selectDate(date: string) {
+    setDetailsOpen(false);
     setSelectedDay(date);
     setWeek(cal.weekStart(date, state.settings.weekStartsOn));
     setMiniMonth(monthStart(date));
@@ -316,11 +290,10 @@ export function App() {
           );
     selectDate(date);
   }
-  function openSlot(slot: Slot) {
+  function openSlot(slot: Slot, anchor: HTMLElement) {
+    setTaskAnchor(anchor);
     selectDate(slot.date);
-    setSelectedTask(
-      slot.chosen?.id || (slot.tasks.length === 1 ? slot.tasks[0].id : null),
-    );
+    setSelectedTask(slot.chosen?.id || slot.tasks[0].id);
     setDetailsOpen(true);
   }
   async function readImport(event: ChangeEvent<HTMLInputElement>) {
@@ -343,679 +316,518 @@ export function App() {
   return (
     <InterfaceLanguage language={state.settings.language}>
       <div className="app-shell">
-        <header className="topbar">
-          <div className="mobile-tools">
-            <button
-              className="icon-button"
-              aria-label={t("Your goals")}
-              onClick={() => setModal("goals")}
-            >
-              <List size={18} />
-            </button>
-            <button
-              className="icon-button"
-              aria-label={t("Settings")}
-              onClick={() => setModal("settings")}
-            >
-              <GearSix size={18} />
-            </button>
-          </div>
-          <div className="calendar-title">
-            <h1>
-              {cal.dateLabel(
-                view === "month" ? visibleMonth : selectedDay,
-                {
-                  month: "long",
-                  year: "numeric",
-                },
-                state.settings.language,
-              )}
-            </h1>
-            <span>
-              {view === "week"
-                ? state.settings.showWeekNumbers
-                  ? t("Week {v0}", {
-                      v0: weekNumber(week, state.settings.weekStartsOn),
-                    })
-                  : t("Week view")
-                : view === "day"
-                  ? cal.dateLabel(
-                      selectedDay,
-                      { weekday: "long" },
-                      state.settings.language,
-                    )
-                  : t("Month view")}
-            </span>
-          </div>
-          <div className="calendar-controls">
-            <div className="week-navigation">
+        <aside className="goals-rail" aria-label={t("Goals")}>
+          <a
+            className="brand"
+            href="#"
+            onClick={(event) => {
+              event.preventDefault();
+              goToday();
+            }}
+          >
+            <CalendarDots size={24} weight="fill" />
+            <span>{t("Appa")}</span>
+          </a>
+          <MiniCalendar
+            month={miniMonth}
+            selectedDay={selectedDay}
+            today={today}
+            settings={state.settings}
+            holidays={holidays}
+            onMonth={setMiniMonth}
+            onSelect={selectDate}
+          />
+          <button
+            className="rail-plan-button primary"
+            onClick={() => setModal("planner")}
+          >
+            <Plus size={15} />
+            {t("Plan a goal")}
+          </button>
+          <div className="goal-group">
+            <h2>{t("Active goals")}</h2>
+            {active.length === 0 && (
+              <p className="muted small">
+                {t("Activate a saved goal or plan a new one.")}
+              </p>
+            )}
+            {active.map((item) => (
               <button
-                className="icon-button"
-                aria-label={t("Previous {v0}", { v0: view })}
-                onClick={() => navigate(-1)}
-              >
-                <CaretLeft size={15} />
-              </button>
-              <button
-                className="icon-button"
-                aria-label={t("Next {v0}", { v0: view })}
-                onClick={() => navigate(1)}
-              >
-                <CaretRight size={15} />
-              </button>
-            </div>
-            <button className="today-button" onClick={goToday}>
-              {t("Today")}
-            </button>
-            <nav className="view-tabs" aria-label={t("Calendar view")}>
-              {(["day", "week", "month"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  className={view === mode ? "selected" : ""}
-                  aria-pressed={view === mode}
-                  onClick={() => {
-                    if (mode === "month" && view !== "month")
-                      setVisibleMonth(monthStart(selectedDay));
-                    setView(mode);
-                  }}
-                >
-                  {mode === "day"
-                    ? t("Day")
-                    : mode === "week"
-                      ? t("Week")
-                      : t("Month")}
-                </button>
-              ))}
-            </nav>
-          </div>
-        </header>
-        {holidayError && (
-          <div className="alert" role="alert">
-            {t(holidayError)}
-          </div>
-        )}
-        {(error || saveError) && (
-          <div className="alert" role="alert">
-            <span>{t(error || saveError)}</span>
-            {saveError && (
-              <button
+                key={item.id}
+                className="goal-link"
                 onClick={() => {
-                  if (!persistBlocked) return download(state);
-                  try {
-                    download(localStorage.getItem(STORAGE) || state);
-                  } catch {
-                    download(state);
-                  }
+                  setGoalId(item.id);
+                  setModal("goal");
                 }}
               >
-                {t("Export a copy")}
+                <Dot color={item.color} />
+                <span>{item.name}</span>
               </button>
-            )}
-            {persistBlocked && (
-              <button onClick={() => setModal("reset")}>
-                {t("Start fresh")}
-              </button>
-            )}
-            <button
-              className="icon-button"
-              aria-label={t("Dismiss message")}
-              onClick={() => setError("")}
-            >
-              <X size={16} />
-            </button>
+            ))}
           </div>
-        )}
-        {state.recovery && (
-          <div className="recovery" role="status">
-            <span>
-              <strong>{t("A fresh start for today.")}</strong> {t("Moved")}{" "}
-              {state.recovery.moved} {t("tasks and consolidated")}{" "}
-              {state.recovery.consolidated}{" "}
-              {t("older repeats. Project steps stay in order.")}
-            </span>
-            <button onClick={() => setModal("recovery")}>
-              {t("Review changes")}
-            </button>
-            {state.undo?.label === "Recovery" && (
-              <button onClick={() => change(cal.undoChange)}>
-                {t("Undo recovery")}
-              </button>
-            )}
-          </div>
-        )}
-        <div className="workspace">
-          <aside className="goals-rail" aria-label={t("Goals")}>
-            <a
-              className="brand"
-              href="#"
-              onClick={(event) => {
-                event.preventDefault();
-                goToday();
-              }}
-            >
-              <CalendarDots size={24} weight="fill" />
-              <span>{t("Appa")}</span>
-            </a>
-            <MiniCalendar
-              month={miniMonth}
-              selectedDay={selectedDay}
-              today={today}
-              settings={state.settings}
-              holidays={holidays}
-              onMonth={setMiniMonth}
-              onSelect={selectDate}
-            />
-            <button
-              className="rail-plan-button"
-              onClick={() => setModal("planner")}
-            >
-              <Plus size={15} />
-              {t("Plan a goal")}
-            </button>
-            <div className="goal-group">
-              <h2>{t("Active goals")}</h2>
-              {active.length === 0 && (
-                <p className="muted small">
-                  {t("Activate a saved goal or plan a new one.")}
-                </p>
+          {later.length > 0 && (
+            <div className="goal-group later">
+              <h2>{t("Later")}</h2>
+              {later.length === 0 && (
+                <p className="muted small">{t("Ideas can wait here.")}</p>
               )}
-              {active.map((item) => (
+              {later.map((item) => (
                 <button
                   key={item.id}
-                  className="goal-link"
+                  className="goal-link muted"
                   onClick={() => {
                     setGoalId(item.id);
                     setModal("goal");
                   }}
                 >
-                  <Dot color={item.color} />
+                  <Dot color="gray" />
                   <span>{item.name}</span>
                 </button>
               ))}
             </div>
-            {later.length > 0 && (
-              <div className="goal-group later">
-                <h2>{t("Later")}</h2>
-                {later.length === 0 && (
-                  <p className="muted small">{t("Ideas can wait here.")}</p>
-                )}
-                {later.map((item) => (
-                  <button
-                    key={item.id}
-                    className="goal-link muted"
-                    onClick={() => {
-                      setGoalId(item.id);
-                      setModal("goal");
-                    }}
-                  >
-                    <Dot color="gray" />
-                    <span>{item.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="rail-footer">
-              <button
-                className="mobile-goals-button"
-                onClick={() => setModal("goals")}
-              >
-                {t("Goals")}
-              </button>
-              {state.sample && (
-                <>
-                  <span className="sample-label">{t("Example workspace")}</span>
-                  <button
-                    className="text-button"
-                    onClick={() => setModal("reset")}
-                  >
-                    {t("Start fresh")}
-                  </button>
-                </>
-              )}
-              <button
-                className="settings-button"
-                onClick={() => setModal("settings")}
-              >
-                <GearSix size={17} />
-                {t("Settings")}
-              </button>
-              {cal.weekStart(today, state.settings.weekStartsOn) !== week && (
-                <button className="text-button" onClick={goToday}>
-                  {t("Return to this week")}
+          )}
+          <div className="rail-footer">
+            <button
+              className="mobile-goals-button"
+              onClick={() => setModal("goals")}
+            >
+              {t("Goals")}
+            </button>
+            {state.sample && (
+              <>
+                <span className="sample-label">{t("Example workspace")}</span>
+                <button
+                  className="text-button"
+                  onClick={() => setModal("reset")}
+                >
+                  {t("Start fresh")}
                 </button>
-              )}
-              <div className="workspace-identity">
-                <Laptop size={23} />
-                <div>
-                  <strong>{t("Local workspace")}</strong>
-                  <span>
-                    {desktop
-                      ? t("Saved on this computer")
-                      : t("Saved in this browser")}
-                  </span>
-                </div>
+              </>
+            )}
+            <button
+              className="settings-button"
+              onClick={() => setModal("settings")}
+            >
+              <GearSix size={17} />
+              {t("Settings")}
+            </button>
+            {cal.weekStart(today, state.settings.weekStartsOn) !== week && (
+              <button className="text-button" onClick={goToday}>
+                {t("Return to this week")}
+              </button>
+            )}
+            <div className="workspace-identity">
+              <Laptop size={23} />
+              <div>
+                <strong>{t("Local workspace")}</strong>
+                <span>
+                  {desktop
+                    ? t("Saved on this computer")
+                    : t("Saved in this browser")}
+                </span>
               </div>
             </div>
-          </aside>
-          <main
-            className="calendar-area"
-            aria-label={
-              view === "week"
-                ? t("Week calendar")
-                : view === "month"
-                  ? t("Month calendar")
-                  : t("Day calendar")
-            }
-          >
-            {view === "week" ? (
-              <CalendarTimeline
-                dates={days}
-                state={state}
-                selectedDay={selectedDay}
-                selectedTask={selectedTask}
-                today={today}
-                holidays={holidays}
-                currentMinute={currentMinute}
-                onDate={selectDate}
-                onSlot={openSlot}
-                scrollRef={timelineScroll}
-                gridRef={timeGrid}
-              />
-            ) : view === "month" ? (
-              <MonthCalendar
-                month={monthStart(selectedDay)}
-                state={state}
-                selectedDay={selectedDay}
-                today={today}
-                holidays={holidays}
-                onSelect={(date) => {
-                  selectDate(date);
-                  setView("day");
-                }}
-                onSlot={openSlot}
-                onVisibleMonth={showVisibleMonth}
-                scrollRequest={monthScrollRequest}
-              />
-            ) : (
-              <div className="day-view" key="day">
-                <nav className="day-date-strip" aria-label={t("Choose day")}>
-                  <span className="day-week-label">
-                    {state.settings.showWeekNumbers &&
-                      t("Week {v0}", {
+          </div>
+        </aside>
+        <div className="calendar-surface">
+          <header className="topbar">
+            <div className="mobile-tools">
+              <IconButton
+                className="icon-button"
+                aria-label={t("Your goals")}
+                onClick={() => setModal("goals")}
+              >
+                <List size={18} />
+              </IconButton>
+              <IconButton
+                className="icon-button"
+                aria-label={t("Settings")}
+                onClick={() => setModal("settings")}
+              >
+                <GearSix size={18} />
+              </IconButton>
+            </div>
+            <div className="calendar-title">
+              <h1>
+                {cal.dateLabel(
+                  view === "month" ? visibleMonth : selectedDay,
+                  {
+                    month: "long",
+                    year: "numeric",
+                  },
+                  state.settings.language,
+                )}
+              </h1>
+              <span>
+                {view === "week"
+                  ? state.settings.showWeekNumbers
+                    ? t("Week {v0}", {
                         v0: weekNumber(week, state.settings.weekStartsOn),
-                      })}
-                  </span>
-                  {days.map((date) => (
-                    <button
-                      key={date}
-                      className={`day-date-button ${date === selectedDay ? "selected" : ""} ${date === today ? "is-today" : ""} ${[0, 6].includes(new Date(date + "T12:00:00Z").getUTCDay()) ? "is-weekend" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
-                      aria-label={t("View {v0}", {
-                        v0: cal.dateLabel(
-                          date,
-                          {
-                            weekday: "long",
-                            day: "numeric",
-                            month: "long",
-                            year: "numeric",
-                          },
-                          state.settings.language,
-                        ),
-                      })}
-                      title={
-                        holidays(date).map(holidayLabel).join(" · ") ||
-                        undefined
-                      }
-                      aria-pressed={date === selectedDay}
-                      aria-current={date === today ? "date" : undefined}
-                      onClick={() => selectDate(date)}
-                    >
-                      <strong>{Number(date.slice(-2))}</strong>
-                      <span>
-                        {cal.dateLabel(
-                          date,
-                          { weekday: "short" },
-                          state.settings.language,
-                        )}
-                      </span>
-                      {holidays(date).length > 0 && (
-                        <small className="header-holiday">
-                          {holidays(date).map(holidayLabel).join(" · ")}
-                        </small>
-                      )}
-                    </button>
-                  ))}
-                </nav>
-                <ResizableDayPanels storageKey={`${STORAGE}.day-task-width`}>
-                  <div className="day-timeline">
-                    <CalendarTimeline
-                      dates={[selectedDay]}
-                      state={state}
-                      selectedDay={selectedDay}
-                      selectedTask={selectedTask}
-                      today={today}
-                      holidays={holidays}
-                      currentMinute={currentMinute}
-                      onDate={selectDate}
-                      onSlot={openSlot}
-                      scrollRef={timelineScroll}
-                      gridRef={timeGrid}
-                    />
-                  </div>
-                  <aside
-                    id="day-task-list"
-                    className="day-task-list"
-                    aria-label={t("Tasks for selected day")}
-                    tabIndex={0}
-                  >
-                    <header className="day-task-heading">
-                      <h2>{t("Tasks")}</h2>
-                      <p>{titleDate(selectedDay, state.settings.language)}</p>
-                      {holidays(selectedDay).map((holiday) => (
-                        <p
-                          className="day-holiday"
-                          key={`${holiday.name}/${holiday.startMinute}`}
-                        >
-                          {holidayLabel(holiday)}
-                        </p>
-                      ))}
-                      <span>
-                        {plannedMinutes} {t("min planned")}
-                      </span>
-                    </header>
-                    {daySlots.length ? (
-                      <ul className="day-task-items">
-                        {daySlots.map((slot) => {
-                          const task = slot.chosen || slot.tasks[0];
-                          const selected = slot.tasks.some(
-                            (item) => item.id === selectedTask,
-                          );
-                          return (
-                            <li key={slot.id}>
-                              <button
-                                className={[
-                                  "agenda-card",
-                                  cal.goalFor(state, task)!.color,
-                                  selected ? "selected" : "",
-                                  slot.done ? "done" : "",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                onClick={() => openSlot(slot)}
-                              >
-                                <span className="agenda-time">
-                                  {cal.timeLabel(slot.start)}
-                                </span>
-                                <div>
-                                  <h3>
-                                    {slot.tasks.length > 1 && !slot.chosen
-                                      ? t("Choose one")
-                                      : task.title}
-                                  </h3>
-                                  <p>
-                                    {cal.goalFor(state, task)!.name} {t("·")}{" "}
-                                    {slot.duration} {t("min")}
-                                    {slot.tasks.length > 1 && !slot.chosen
-                                      ? t(" reserved")
-                                      : ""}
-                                  </p>
-                                </div>
-                                {slot.done ? (
-                                  <CheckCircle
-                                    size={18}
-                                    aria-label={t("Completed")}
-                                  />
-                                ) : cal.isBlocked(state, task) ? (
-                                  <LockSimple
-                                    size={18}
-                                    aria-label={t("Prerequisite unfinished")}
-                                  />
-                                ) : (
-                                  <ArrowRight size={18} />
-                                )}
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : (
-                      <Empty
-                        onPlan={() => setModal("planner")}
-                        hasGoals={active.length > 0}
-                      />
-                    )}
-                  </aside>
-                </ResizableDayPanels>
+                      })
+                    : t("Week view")
+                  : view === "day"
+                    ? cal.dateLabel(
+                        selectedDay,
+                        { weekday: "long" },
+                        state.settings.language,
+                      )
+                    : t("Month view")}
+              </span>
+            </div>
+            <div className="calendar-controls">
+              <div className="week-navigation">
+                <IconButton
+                  className="icon-button"
+                  aria-label={t("Previous {v0}", { v0: view })}
+                  onClick={() => navigate(-1)}
+                >
+                  <CaretLeft size={15} />
+                </IconButton>
+                <IconButton
+                  className="icon-button"
+                  aria-label={t("Next {v0}", { v0: view })}
+                  onClick={() => navigate(1)}
+                >
+                  <CaretRight size={15} />
+                </IconButton>
               </div>
-            )}
-            <form
-              className="planning-composer"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (composer.trim()) {
-                  setState((previous) => ({
-                    ...previous,
-                    draft: { intention: composer.trim(), plan: null },
-                  }));
-                  setComposer("");
-                }
-                setModal("planner");
-              }}
-            >
-              <CalendarDots size={23} weight="fill" />
-              <input
-                aria-label={t("Describe a goal")}
-                value={composer}
-                maxLength={3600}
-                placeholder={t("Tell Appa what matters…")}
-                onChange={(event) => setComposer(event.target.value)}
-              />
-              <button aria-label={t("Plan this goal")} type="submit">
-                <ArrowUp size={19} weight="bold" />
+              <button className="today-button" onClick={goToday}>
+                {t("Today")}
               </button>
-            </form>
-          </main>
-          {detailsOpen && (
-            <Dialog
-              title={titleDate(selectedDay, state.settings.language)}
-              onClose={() => setDetailsOpen(false)}
-            >
-              <aside className="day-panel" aria-label={t("Selected day")}>
-                <section className="day-summary">
-                  <p>
-                    <strong>
-                      {plannedMinutes} {t("min")}
-                    </strong>{" "}
-                    {t("planned")}
-                  </p>
-                </section>
-                <section className="next-step">
-                  <p className="section-label">
-                    {selectedDay === today
-                      ? t("Next step")
-                      : t("Scheduled step")}
-                  </p>
-                  {nextTask ? (
-                    <>
-                      <h1>{nextTask.title}</h1>
-                      <p className="task-goal">
-                        <Dot color={cal.goalFor(state, nextTask)!.color} />
-                        {cal.goalFor(state, nextTask)!.name}
-                      </p>
-                      <p className="task-duration">
-                        <Clock size={24} />
-                        {nextTask.minutes} {t("min")}
-                      </p>
-                      <button
-                        className="primary full"
-                        disabled={
-                          selectedDay !== today ||
-                          cal.isBlocked(state, nextTask)
-                        }
-                        onClick={() => complete(nextTask)}
-                      >
-                        {cal.isBlocked(state, nextTask) ? (
-                          <>
-                            <LockSimple size={17} />
-                            {t("Finish the prerequisite first")}
-                          </>
-                        ) : selectedDay !== today ? (
-                          t("Available on this day")
-                        ) : (
-                          t("Mark complete")
-                        )}
-                      </button>
-                      {cal.isBlocked(state, nextTask) && (
-                        <p className="small muted">
-                          {t("After:")}{" "}
-                          {nextTask.dependsOn
-                            .map(
-                              (key) =>
-                                state.tasks.find((t) => t.id === key)?.title,
-                            )
-                            .join(", ")}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <h1>
-                        {shared.length
-                          ? t("Make room for one thing.")
-                          : daySlots.length && daySlots.every((s) => s.done)
-                            ? t("You made progress.")
-                            : t("A little breathing room.")}
-                      </h1>
-                      <p className="muted leading">
-                        {shared.length
-                          ? t(
-                              "Choose an activity below to make it your next step.",
-                            )
-                          : daySlots.length
-                            ? t("Your planned steps for this day are complete.")
-                            : t("There are no steps scheduled for this day.")}
-                      </p>
-                      {!active.length && (
-                        <button
-                          className="primary full"
-                          onClick={() => setModal("planner")}
-                        >
-                          {t("Plan your first goal")}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </section>
-                {shared.map((slot) => (
-                  <section className="shared-section" key={slot.id}>
-                    <h2>
-                      {t("Choose one (")}
-                      {cal.timeLabel(slot.start)}
-                      {t(")")}
-                    </h2>
-                    <p className="muted">
-                      {slot.duration} {t("min")}{" "}
-                      {slot.chosen ? t("planned") : t("reserved")}{" "}
-                      <span className="separator">{t("·")}</span>{" "}
-                      <span
-                        className={
-                          cal.goalFor(state, slot.tasks[0])!.color + "-text"
-                        }
-                      >
-                        {new Set(slot.tasks.map((t) => t.goalId)).size > 1
-                          ? t("Multiple goals")
-                          : cal.goalFor(state, slot.tasks[0])!.name}
-                      </span>
-                    </p>
-                    <div className="activity-options">
-                      {slot.tasks.map((task) => (
-                        <label
-                          className={`activity-option ${cal.isBlocked(state, task) ? "disabled" : ""}`}
-                          key={task.id}
-                        >
-                          <input
-                            type="radio"
-                            name={slot.id}
-                            checked={slot.chosen?.id === task.id}
-                            disabled={cal.isBlocked(state, task)}
-                            onChange={() => {
-                              change((previous) =>
-                                cal.selectChoice(
-                                  previous,
-                                  selectedDay,
-                                  slot.id,
-                                  task.id,
-                                ),
-                              );
-                              setSelectedTask(task.id);
-                            }}
-                          />
-                          <span>
-                            {task.title}
-                            <small>
-                              {new Set(slot.tasks.map((t) => t.goalId)).size > 1
-                                ? cal.goalFor(state, task)!.name + " · "
-                                : ""}
-                              {task.minutes} {t("min")}
-                              {cal.isBlocked(state, task)
-                                ? t(" · prerequisite unfinished")
-                                : ""}
-                            </small>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                    {slot.chosen &&
-                      selectedDay === today &&
-                      nextTask?.id !== slot.chosen.id && (
-                        <button
-                          className="secondary full"
-                          onClick={() => {
-                            if (slot.chosen) complete(slot.chosen);
-                          }}
-                        >
-                          {t("Complete")} {slot.chosen.title}
-                        </button>
-                      )}
-                  </section>
+              <nav className="view-tabs" aria-label={t("Calendar view")}>
+                {(["day", "week", "month"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    className={view === mode ? "selected" : ""}
+                    aria-pressed={view === mode}
+                    onClick={() => {
+                      setDetailsOpen(false);
+                      if (mode === "month" && view !== "month")
+                        setVisibleMonth(monthStart(selectedDay));
+                      setView(mode);
+                    }}
+                  >
+                    {mode === "day"
+                      ? t("Day")
+                      : mode === "week"
+                        ? t("Week")
+                        : t("Month")}
+                  </button>
                 ))}
-                {future.length > 0 && (
-                  <section className="future-section">
-                    <p className="section-label">
-                      {t("Later steps")}{" "}
-                      <span className="muted">{t("(scheduled)")}</span>
-                    </p>
-                    {future.map((task) => (
+              </nav>
+            </div>
+          </header>
+          {holidayError && (
+            <div className="alert" role="alert">
+              {t(holidayError)}
+            </div>
+          )}
+          {(error || saveError) && (
+            <div className="alert" role="alert">
+              <span>{t(error || saveError)}</span>
+              {saveError && (
+                <button
+                  onClick={() => {
+                    if (!persistBlocked) return download(state);
+                    try {
+                      download(localStorage.getItem(STORAGE) || state);
+                    } catch {
+                      download(state);
+                    }
+                  }}
+                >
+                  {t("Export a copy")}
+                </button>
+              )}
+              {persistBlocked && (
+                <button onClick={() => setModal("reset")}>
+                  {t("Start fresh")}
+                </button>
+              )}
+              <IconButton
+                className="icon-button"
+                aria-label={t("Dismiss message")}
+                onClick={() => setError("")}
+              >
+                <X size={16} />
+              </IconButton>
+            </div>
+          )}
+          {state.recovery && (
+            <div className="recovery" role="status">
+              <span>
+                <strong>{t("A fresh start for today.")}</strong> {t("Moved")}{" "}
+                {state.recovery.moved} {t("tasks and consolidated")}{" "}
+                {state.recovery.consolidated}{" "}
+                {t("older repeats. Project steps stay in order.")}
+              </span>
+              <button onClick={() => setModal("recovery")}>
+                {t("Review changes")}
+              </button>
+              {state.undo?.label === "Recovery" && (
+                <button onClick={() => change(cal.undoChange)}>
+                  {t("Undo recovery")}
+                </button>
+              )}
+            </div>
+          )}
+          <div className="workspace">
+            <main
+              className="calendar-area"
+              aria-label={
+                view === "week"
+                  ? t("Week calendar")
+                  : view === "month"
+                    ? t("Month calendar")
+                    : t("Day calendar")
+              }
+            >
+              {view === "week" ? (
+                <CalendarTimeline
+                  dates={days}
+                  state={state}
+                  selectedDay={selectedDay}
+                  selectedTask={selectedTask}
+                  today={today}
+                  holidays={holidays}
+                  currentMinute={currentMinute}
+                  onDate={selectDate}
+                  onSlot={openSlot}
+                  scrollRef={timelineScroll}
+                  gridRef={timeGrid}
+                />
+              ) : view === "month" ? (
+                <MonthCalendar
+                  month={monthStart(selectedDay)}
+                  state={state}
+                  selectedDay={selectedDay}
+                  today={today}
+                  holidays={holidays}
+                  onSelect={(date) => {
+                    selectDate(date);
+                    setView("day");
+                  }}
+                  onSlot={openSlot}
+                  onVisibleMonth={showVisibleMonth}
+                  scrollRequest={monthScrollRequest}
+                />
+              ) : (
+                <div className="day-view" key="day">
+                  <nav className="day-date-strip" aria-label={t("Choose day")}>
+                    <span className="day-week-label">
+                      {state.settings.showWeekNumbers &&
+                        t("Week {v0}", {
+                          v0: weekNumber(week, state.settings.weekStartsOn),
+                        })}
+                    </span>
+                    {days.map((date) => (
                       <button
-                        className="future-task"
-                        key={task.id}
-                        onClick={() => {
-                          selectDate(task.date);
-                          setSelectedTask(task.id);
-                        }}
+                        key={date}
+                        className={`day-date-button ${date === selectedDay ? "selected" : ""} ${date === today ? "is-today" : ""} ${[0, 6].includes(new Date(date + "T12:00:00Z").getUTCDay()) ? "is-weekend" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
+                        aria-label={t("View {v0}", {
+                          v0: cal.dateLabel(
+                            date,
+                            {
+                              weekday: "long",
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            },
+                            state.settings.language,
+                          ),
+                        })}
+                        title={
+                          holidays(date).map(holidayLabel).join(" · ") ||
+                          undefined
+                        }
+                        aria-pressed={date === selectedDay}
+                        aria-current={date === today ? "date" : undefined}
+                        onClick={() => selectDate(date)}
                       >
-                        <Dot color={cal.goalFor(state, task)!.color} />
+                        <strong>{Number(date.slice(-2))}</strong>
                         <span>
-                          <strong>{task.title}</strong>
-                          <small>
-                            {cal
-                              .dateLabel(task.date, {
-                                weekday: "short",
-                                day: "numeric",
-                                month: "short",
-                              })
-                              .replace(",", "")}{" "}
-                            {t("·")} {task.minutes} {t("min")}
-                          </small>
+                          {cal.dateLabel(
+                            date,
+                            { weekday: "short" },
+                            state.settings.language,
+                          )}
                         </span>
-                        {cal.isBlocked(state, task) && <LockSimple size={15} />}
+                        {holidays(date).length > 0 && (
+                          <small className="header-holiday">
+                            {holidays(date).map(holidayLabel).join(" · ")}
+                          </small>
+                        )}
                       </button>
                     ))}
-                  </section>
-                )}
-              </aside>
-            </Dialog>
-          )}
+                  </nav>
+                  <ResizableDayPanels storageKey={`${STORAGE}.day-task-width`}>
+                    <div className="day-timeline">
+                      <CalendarTimeline
+                        dates={[selectedDay]}
+                        state={state}
+                        selectedDay={selectedDay}
+                        selectedTask={selectedTask}
+                        today={today}
+                        holidays={holidays}
+                        currentMinute={currentMinute}
+                        onDate={selectDate}
+                        onSlot={openSlot}
+                        scrollRef={timelineScroll}
+                        gridRef={timeGrid}
+                      />
+                    </div>
+                    <aside
+                      id="day-task-list"
+                      className="day-task-list"
+                      aria-label={t("Tasks for selected day")}
+                      tabIndex={0}
+                    >
+                      <header className="day-task-heading">
+                        <h2>{t("Tasks")}</h2>
+                        <p>{titleDate(selectedDay, state.settings.language)}</p>
+                        {holidays(selectedDay).map((holiday) => (
+                          <p
+                            className="day-holiday"
+                            key={`${holiday.name}/${holiday.startMinute}`}
+                          >
+                            {holidayLabel(holiday)}
+                          </p>
+                        ))}
+                        <span>
+                          {plannedMinutes} {t("min planned")}
+                        </span>
+                      </header>
+                      {daySlots.length ? (
+                        <ul className="day-task-items">
+                          {daySlots.map((slot) => {
+                            const task = slot.chosen || slot.tasks[0];
+                            const selected = slot.tasks.some(
+                              (item) => item.id === selectedTask,
+                            );
+                            return (
+                              <li key={slot.id}>
+                                <button
+                                  className={[
+                                    "agenda-card",
+                                    cal.goalFor(state, task)!.color,
+                                    selected ? "selected" : "",
+                                    slot.done ? "done" : "",
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                                  onClick={(event) =>
+                                    openSlot(slot, event.currentTarget)
+                                  }
+                                >
+                                  <span className="agenda-time">
+                                    {cal.timeLabel(slot.start)}
+                                  </span>
+                                  <div>
+                                    <h3>
+                                      {slot.tasks.length > 1 && !slot.chosen
+                                        ? t("Choose one")
+                                        : task.title}
+                                    </h3>
+                                    <p>
+                                      {cal.goalFor(state, task)!.name} {t("·")}{" "}
+                                      {slot.duration} {t("min")}
+                                      {slot.tasks.length > 1 && !slot.chosen
+                                        ? t(" reserved")
+                                        : ""}
+                                    </p>
+                                  </div>
+                                  {slot.done ? (
+                                    <CheckCircle
+                                      size={18}
+                                      aria-label={t("Completed")}
+                                    />
+                                  ) : cal.isBlocked(state, task) ? (
+                                    <LockSimple
+                                      size={18}
+                                      aria-label={t("Prerequisite unfinished")}
+                                    />
+                                  ) : (
+                                    <ArrowRight size={18} />
+                                  )}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <Empty
+                          onPlan={() => setModal("planner")}
+                          hasGoals={active.length > 0}
+                        />
+                      )}
+                    </aside>
+                  </ResizableDayPanels>
+                </div>
+              )}
+              <form
+                className="planning-composer"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (composer.trim()) {
+                    setState((previous) => ({
+                      ...previous,
+                      draft: { intention: composer.trim(), plan: null },
+                    }));
+                    setComposer("");
+                  }
+                  setModal("planner");
+                }}
+              >
+                <CalendarDots size={23} weight="fill" />
+                <input
+                  aria-label={t("Describe a goal")}
+                  value={composer}
+                  maxLength={3600}
+                  placeholder={t("Tell Appa what matters…")}
+                  onChange={(event) => setComposer(event.target.value)}
+                />
+                <IconButton
+                  showTooltip={false}
+                  aria-label={t("Plan this goal")}
+                  type="submit"
+                >
+                  <ArrowUp size={19} weight="bold" />
+                </IconButton>
+              </form>
+            </main>
+          </div>
         </div>
+        {detailsOpen && cardTask && (
+          <TaskCard
+            key={cardTask.id}
+            state={state}
+            task={cardTask}
+            anchor={taskAnchor}
+            today={today}
+            onClose={() => setDetailsOpen(false)}
+            onSave={(edit) => {
+              const next = cal.editTask(state, cardTask.id, edit, today);
+              setState(next);
+              setError("");
+              setNotice(t("Task updated."));
+              selectDate(edit.date);
+              setSelectedTask(cardTask.id);
+              setDetailsOpen(true);
+            }}
+            onComplete={() => complete(cardTask)}
+            onTask={(task) => {
+              selectDate(task.date);
+              setSelectedTask(task.id);
+              setDetailsOpen(true);
+            }}
+            onChoice={(task) => {
+              change((previous) =>
+                cal.selectChoice(previous, task.date, task.slotId, task.id),
+              );
+              setSelectedTask(task.id);
+            }}
+          />
+        )}
         {state.undo && state.undo.label !== "Recovery" && (
           <div className="undo-toast" role="status">
             <CheckCircle size={18} />
@@ -1160,9 +972,14 @@ export function App() {
         )}
         {modal === "goal" && goal && (
           <GoalDetails
+            key={goal.id}
             goal={goal}
             state={state}
             onClose={() => setModal(null)}
+            onSave={(edit) => {
+              setState(cal.editGoal(state, goal.id, edit, today));
+              setNotice("Goal updated.");
+            }}
             onActivate={() => {
               setState(
                 cal.extendRecurrences(
@@ -1194,7 +1011,8 @@ export function App() {
                   {t("Cancel")}
                 </button>
                 <button
-                  className="primary"
+                  className="primary danger-action"
+                  data-action="destructive"
                   onClick={() => {
                     change(
                       (previous) =>
@@ -1210,7 +1028,7 @@ export function App() {
                     goToday();
                   }}
                 >
-                  {t("Restore backup")}
+                  {t("Replace calendar")}
                 </button>
               </div>
             </div>
@@ -1232,7 +1050,8 @@ export function App() {
                   {t("Keep this calendar")}
                 </button>
                 <button
-                  className="primary"
+                  className="primary danger-action"
+                  data-action="destructive"
                   onClick={() => {
                     change(
                       (previous) => cal.resetWorkspace(previous, today),
@@ -1242,7 +1061,7 @@ export function App() {
                     setModal(null);
                   }}
                 >
-                  {t("Start fresh")}
+                  {t("Remove example goals")}
                 </button>
               </div>
             </div>

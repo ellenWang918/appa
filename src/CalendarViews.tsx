@@ -1,3 +1,4 @@
+import { IconButton } from "./ui";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { CaretLeft, CaretRight, Check } from "@phosphor-icons/react";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
@@ -63,6 +64,7 @@ export function MiniCalendar({
   onSelect: (date: string) => void;
 }) {
   const t = useInterfaceText();
+  const dates = monthDays(month, settings.weekStartsOn);
 
   return (
     <section
@@ -72,20 +74,20 @@ export function MiniCalendar({
       <div className="mini-heading">
         <h2>{cal.dateLabel(month, { month: "long" }, settings.language)}</h2>
         <div>
-          <button
+          <IconButton
             className="icon-button"
             aria-label={t("Previous month")}
             onClick={() => onMonth(shiftMonth(month, -1))}
           >
             <CaretLeft size={13} />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             className="icon-button"
             aria-label={t("Next month")}
             onClick={() => onMonth(shiftMonth(month, 1))}
           >
             <CaretRight size={13} />
-          </button>
+          </IconButton>
         </div>
       </div>
       <div className="mini-weekdays" aria-hidden="true">
@@ -95,39 +97,46 @@ export function MiniCalendar({
         ))}
       </div>
       <div className="mini-days">
-        {monthDays(month, settings.weekStartsOn).map((date, index) => (
-          <Fragment key={date}>
-            {settings.showWeekNumbers && index % 7 === 0 && (
-              <span
-                className="mini-week-number"
-                aria-label={t("Week {v0}", {
-                  v0: weekNumber(date, settings.weekStartsOn),
-                })}
-              >
-                {weekNumber(date, settings.weekStartsOn)}
-              </span>
-            )}
-            <button
-              className={`${date === selectedDay ? "selected" : ""} ${monthStart(date) !== monthStart(month) ? "outside-month" : ""} ${date === today ? "is-today" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
-              aria-label={cal.dateLabel(
-                date,
-                {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                },
-                settings.language,
+        {dates
+          .filter((_, index) => index % 7 === 0)
+          .map((weekStart, weekIndex) => (
+            <div className="mini-week" key={weekStart}>
+              {settings.showWeekNumbers && (
+                <span
+                  className="mini-week-number"
+                  aria-label={t("Week {v0}", {
+                    v0: weekNumber(weekStart, settings.weekStartsOn),
+                  })}
+                >
+                  {weekNumber(weekStart, settings.weekStartsOn)}
+                </span>
               )}
-              title={holidays(date).map(holidayLabel).join(" · ") || undefined}
-              aria-current={date === today ? "date" : undefined}
-              aria-pressed={date === selectedDay}
-              onClick={() => onSelect(date)}
-            >
-              {Number(date.slice(-2))}
-            </button>
-          </Fragment>
-        ))}
+              {dates.slice(weekIndex * 7, weekIndex * 7 + 7).map((date) => (
+                <button
+                  key={date}
+                  className={`${date === selectedDay ? "selected" : ""} ${monthStart(date) !== monthStart(month) ? "outside-month" : ""} ${date === today ? "is-today" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
+                  aria-label={cal.dateLabel(
+                    date,
+                    {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    },
+                    settings.language,
+                  )}
+                  title={
+                    holidays(date).map(holidayLabel).join(" · ") || undefined
+                  }
+                  aria-current={date === today ? "date" : undefined}
+                  aria-pressed={date === selectedDay}
+                  onClick={() => onSelect(date)}
+                >
+                  {Number(date.slice(-2))}
+                </button>
+              ))}
+            </div>
+          ))}
       </div>
     </section>
   );
@@ -150,7 +159,7 @@ export function MonthCalendar({
   today: string;
   holidays: HolidayLookup;
   onSelect: (date: string) => void;
-  onSlot: (slot: Slot) => void;
+  onSlot: (slot: Slot, anchor: HTMLElement) => void;
   onVisibleMonth: (month: string) => void;
   scrollRequest: number;
 }) {
@@ -270,7 +279,7 @@ export function MonthCalendar({
         onScroll={onScroll}
         style={
           {
-            "--month-grid-height": `${Math.max(0, viewportHeight - 150)}px`,
+            "--month-grid-height": `${Math.max(0, viewportHeight - 124)}px`,
           } as CSSProperties
         }
       >
@@ -345,7 +354,9 @@ export function MonthCalendar({
                           <button
                             className={`month-task ${slot.done ? "done" : ""}`}
                             key={slot.id}
-                            onClick={() => onSlot(slot)}
+                            onClick={(event) =>
+                              onSlot(slot, event.currentTarget)
+                            }
                             title={(slot.chosen || slot.tasks[0]).title}
                           >
                             {slot.done && <Check size={10} />}

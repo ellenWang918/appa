@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createChatgptService, equalSecret } from "../server/chatgpt.js";
 import { errorCode } from "../src/errors.js";
+import type { CredentialStore } from "../server/credential-store.js";
 
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -21,11 +22,13 @@ export async function startLocalApp({
   dataRoot,
   deviceSecret,
   requestFetch,
+  credentialStore,
 }: {
   staticRoot: string;
   dataRoot: string;
   deviceSecret: string;
   requestFetch?: typeof fetch;
+  credentialStore?: CredentialStore;
 }) {
   if (typeof deviceSecret !== "string" || deviceSecret.length < 32)
     throw new Error("A private desktop session is required.");
@@ -52,6 +55,7 @@ export async function startLocalApp({
   const ai = createChatgptService({
     requireCallbackCookie: false,
     requestFetch,
+    credentialStore,
   });
   await ai.initialize(path.join(dataRoot, "connection"));
   const root = path.resolve(staticRoot);

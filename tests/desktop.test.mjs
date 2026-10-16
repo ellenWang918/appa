@@ -8,6 +8,8 @@ import { startLocalApp } from "../dist/runtime/desktop/local-server.js";
 import { isAllowedExternal } from "../dist/runtime/desktop/policy.js";
 import { createChatgptService } from "../dist/runtime/server/chatgpt.js";
 import { generateKeyPair, exportJWK, SignJWT } from "jose";
+import { createCredentialStore } from "../dist/runtime/server/credential-store.js";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const deviceSecret = "test-private-desktop-session-1234567890";
 const deviceCookie = "calendar-device=" + deviceSecret;
@@ -186,7 +188,7 @@ for (const requireCallbackCookie of [true, false]) {
   });
 }
 
-async function signedSession(t, pause) {
+async function signedSession(t, pause, options = {}) {
   const { dataRoot } = await fixture(t);
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const jwk = {
@@ -194,7 +196,8 @@ async function signedSession(t, pause) {
     kid: "synthetic",
     alg: "RS256",
   };
-  let nonce, release, entered;
+  let nonce, release, entered, tokenFailure;
+  const refreshes = [];
   const held = new Promise((resolve) => {
     release = resolve;
   });
@@ -215,7 +218,12 @@ async function signedSession(t, pause) {
   t.after(() => {
     globalThis.fetch = originalFetch;
   });
-  const service = createChatgptService({
+  const serviceOptions = {
+    ...options,
+    credentialStore:
+      typeof options.credentialStore === "function"
+        ? options.credentialStore(dataRoot)
+        : options.credentialStore,
     requireCallbackCookie: false,
     requestFetch: async (url, options) => {
       if (String(url).endsWith("/.well-known/openid-configuration"))
@@ -232,6 +240,17 @@ async function signedSession(t, pause) {
         const refresh =
           new URLSearchParams(options.body).get("grant_type") ===
           "refresh_token";
+        if (refresh) {
+          const values = new URLSearchParams(options.body);
+          refreshes.push(Object.fromEntries(values));
+          if (tokenFailure)
+            return Response.json(
+              { error: tokenFailure },
+              {
+                status: tokenFailure === "temporarily_unavailable" ? 503 : 400,
+              },
+            );
+        }
         if (
           (pause === "refresh" && refresh) ||
           (pause === "callback" && !refresh)
@@ -249,7 +268,9 @@ async function signedSession(t, pause) {
           .sign(privateKey);
         return Response.json({
           access_token: "synthetic-access",
-          refresh_token: "synthetic-refresh",
+          refresh_token: refresh
+            ? `synthetic-refresh-${refreshes.length}`
+            : "synthetic-refresh",
           id_token,
           scope: "chatgpt.tokens.use.direct",
           expires_in: pause === "refresh" && !refresh ? 0 : 3600,
@@ -274,24 +295,30 @@ async function signedSession(t, pause) {
       }
       throw new Error("Unexpected synthetic request");
     },
-  });
-  await service.initialize(dataRoot);
-  const server = createServer((req, res) =>
-    service.handle(req, res, () => res.end()),
-  );
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(async () => {
+  };
+  let service, server, origin, headers;
+  async function launch() {
+    service = createChatgptService(serviceOptions);
+    await service.initialize(dataRoot);
+    server = createServer((req, res) =>
+      service.handle(req, res, () => res.end()),
+    );
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    origin = `http://127.0.0.1:${server.address().port}`;
+    const response = await originalFetch(origin + "/api/session");
+    const session = await response.json();
+    headers = {
+      Cookie: response.headers.get("set-cookie").split(";")[0],
+      "X-Calendar-CSRF": session.csrf,
+    };
+  }
+  async function stop() {
     service.close();
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
-  });
-  const origin = `http://127.0.0.1:${server.address().port}`;
-  const response = await originalFetch(origin + "/api/session"),
-    session = await response.json();
-  const headers = {
-    Cookie: response.headers.get("set-cookie").split(";")[0],
-    "X-Calendar-CSRF": session.csrf,
-  };
+  }
+  await launch();
+  t.after(stop);
   const api = (route, data) =>
     originalFetch(origin + "/api/" + route, {
       headers,
@@ -307,8 +334,231 @@ async function signedSession(t, pause) {
   callback.searchParams.set("client_id", "synthetic-client");
   callback.searchParams.set("code", "synthetic-code");
   const finish = () => originalFetch(callback);
-  return { api, finish, started, release };
+  return {
+    api,
+    finish,
+    started,
+    release,
+    dataRoot,
+    refreshes,
+    setTokenFailure: (failure) => {
+      tokenFailure = failure;
+    },
+    restart: async () => {
+      await stop();
+      await launch();
+    },
+  };
 }
+
+test("A remembered ChatGPT session survives restart and sign-out removes it", async (t) => {
+  let saved = null;
+  const credentialStore = {
+    load: async () => saved,
+    save: async (value) => {
+      saved = structuredClone(value);
+    },
+    clear: async () => {
+      saved = null;
+    },
+  };
+  const session = await signedSession(t, null, { credentialStore });
+  assert.equal((await session.finish()).status, 200);
+  assert.equal((await (await session.api("session")).json()).connected, true);
+  await session.restart();
+  const restored = await (await session.api("session")).json();
+  assert.equal(
+    restored.connected,
+    true,
+    "Reopening must restore the signed-in account",
+  );
+  assert.equal(restored.account.id, "synthetic-client");
+  assert.equal((await session.api("models")).status, 200);
+  assert.equal(JSON.stringify(restored).includes("synthetic-access"), false);
+  assert.equal((await session.api("auth/disconnect", {})).status, 200);
+  await session.restart();
+  assert.equal((await (await session.api("session")).json()).connected, false);
+});
+
+function memoryCredentials() {
+  let saved = null;
+  return {
+    load: async () => saved,
+    save: async (value) => {
+      saved = structuredClone(value);
+    },
+    clear: async () => {
+      saved = null;
+    },
+    expire: () => {
+      saved.credentials.expiresAt = 0;
+    },
+  };
+}
+
+test("A failed removal reports incomplete sign-out and a retry clears the saved session", async (t) => {
+  const store = memoryCredentials();
+  let blocked = true;
+  const session = await signedSession(t, null, {
+    credentialStore: {
+      ...store,
+      clear: async () => {
+        if (blocked) throw new Error("Synthetic file access failure");
+        await store.clear();
+      },
+    },
+  });
+  assert.equal((await session.finish()).status, 200);
+  assert.equal((await session.api("auth/disconnect", {})).status, 200);
+  const state = await (await session.api("session")).json();
+  assert.equal(state.connected, false);
+  assert.equal(state.signOutPending, true);
+  assert.match(state.notice, /could not remove/);
+  blocked = false;
+  assert.equal((await session.api("auth/disconnect", {})).status, 200);
+  assert.equal(await store.load(), null);
+  await session.restart();
+  assert.equal((await (await session.api("session")).json()).connected, false);
+});
+
+test("Reopening renews an expired token and persists the replacement refresh token", async (t) => {
+  const store = memoryCredentials();
+  const session = await signedSession(t, null, { credentialStore: store });
+  assert.equal((await session.finish()).status, 200);
+  store.expire();
+  await session.restart();
+  assert.equal((await (await session.api("session")).json()).connected, true);
+  assert.equal(session.refreshes.length, 1);
+  assert.deepEqual(session.refreshes[0], {
+    grant_type: "refresh_token",
+    client_id: "synthetic-client",
+    refresh_token: "synthetic-refresh",
+    resource: "https://api.openai.com/v1",
+  });
+  store.expire();
+  await session.restart();
+  assert.equal(session.refreshes[1].refresh_token, "synthetic-refresh-1");
+  assert.equal(
+    (await store.load()).credentials.refresh_token,
+    "synthetic-refresh-2",
+  );
+});
+
+test("Concurrent requests share one renewal of a remembered session", async (t) => {
+  const session = await signedSession(t, "refresh", {
+    credentialStore: memoryCredentials(),
+  });
+  assert.equal((await session.finish()).status, 200);
+  const first = session.api("models");
+  await session.started;
+  const second = session.api("session");
+  const third = session.api("models");
+  session.release();
+  for (const response of await Promise.all([first, second, third]))
+    assert.equal(response.status, 200);
+  assert.equal(session.refreshes.length, 1);
+});
+
+test("Revoked refresh tokens remove saved sign-in while network failures retain it for retry", async (t) => {
+  const store = memoryCredentials();
+  const session = await signedSession(t, null, { credentialStore: store });
+  assert.equal((await session.finish()).status, 200);
+  store.expire();
+  session.setTokenFailure("temporarily_unavailable");
+  await session.restart();
+  let state = await (await session.api("session")).json();
+  assert.equal(state.connected, true);
+  assert.ok(await store.load());
+  assert.match(state.notice, /Check your connection/);
+  session.setTokenFailure("invalid_grant");
+  state = await (await session.api("session")).json();
+  assert.equal(state.connected, false);
+  assert.equal(state.account, null);
+  assert.equal(await store.load(), null);
+  assert.match(state.notice, /Sign in again/);
+  await session.restart();
+  assert.equal((await (await session.api("session")).json()).connected, false);
+});
+
+function testProtection() {
+  const key = randomBytes(32);
+  return {
+    isEncryptionAvailable: () => true,
+    encryptString(value) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv("aes-256-gcm", key, iv);
+      const encrypted = Buffer.concat([
+        cipher.update(value, "utf8"),
+        cipher.final(),
+      ]);
+      return Buffer.concat([iv, cipher.getAuthTag(), encrypted]);
+    },
+    decryptString(value) {
+      const decipher = createDecipheriv(
+        "aes-256-gcm",
+        key,
+        value.subarray(0, 12),
+      );
+      decipher.setAuthTag(value.subarray(12, 28));
+      return Buffer.concat([
+        decipher.update(value.subarray(28)),
+        decipher.final(),
+      ]).toString("utf8");
+    },
+  };
+}
+
+test("Credential files are encrypted, restore after service restart, and are deleted on sign-out", async (t) => {
+  let credentialFile;
+  const session = await signedSession(t, null, {
+    credentialStore: (directory) => {
+      credentialFile = path.join(directory, "credentials.bin");
+      return createCredentialStore(credentialFile, testProtection());
+    },
+  });
+  assert.equal((await session.finish()).status, 200);
+  const encrypted = await readFile(credentialFile);
+  for (const secret of [
+    "synthetic-access",
+    "synthetic-refresh",
+    "synthetic-subject",
+  ])
+    assert.equal(encrypted.includes(Buffer.from(secret)), false);
+  const registration = await readFile(
+    path.join(session.dataRoot, "registrations.json"),
+    "utf8",
+  );
+  assert.equal(registration.includes("synthetic-access"), false);
+  assert.equal(registration.includes("synthetic-refresh"), false);
+  await session.restart();
+  const restored = await (await session.api("session")).json();
+  assert.equal(restored.connected, true);
+  assert.equal(restored.remembered, true);
+  assert.equal((await session.api("auth/disconnect", {})).status, 200);
+  await assert.rejects(readFile(credentialFile), { code: "ENOENT" });
+});
+
+test("Unavailable encryption and damaged credentials leave the calendar usable without a plaintext fallback", async (t) => {
+  const { dataRoot } = await fixture(t);
+  const file = path.join(dataRoot, "credentials.bin");
+  const protection = testProtection();
+  const store = createCredentialStore(file, protection);
+  await mkdir(dataRoot, { recursive: true });
+  await writeFile(file, "damaged credentials");
+  await assert.rejects(store.load(), /could not be restored/);
+  assert.equal(await readFile(file, "utf8"), "damaged credentials");
+  const session = await signedSession(t, null, { credentialStore: store });
+  const state = await (await session.api("session")).json();
+  assert.equal(state.connected, false);
+  assert.match(state.notice, /Sign in again/);
+  protection.isEncryptionAvailable = () => false;
+  assert.equal((await session.finish()).status, 200);
+  const signedIn = await (await session.api("session")).json();
+  assert.equal(signedIn.connected, true);
+  assert.equal(signedIn.remembered, false);
+  assert.match(signedIn.notice, /could not securely remember/);
+  assert.equal(await readFile(file, "utf8"), "damaged credentials");
+});
 
 for (const pause of ["refresh", "callback", "models"]) {
   test(`Disconnect prevents delayed ${pause} results from restoring account state`, async (t) => {

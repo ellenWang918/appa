@@ -29,6 +29,12 @@ export function CalendarSettings({
     .filter(([, location]) => location.country === country && location.state)
     .sort((a, b) => a[1].label.localeCompare(b[1].label, "en"));
   const automatic = automaticHolidayCalendar(settings.timezone);
+  const holidaySelection =
+    settings.holidayCalendar === "auto"
+      ? `${t("Automatic —")} ${holidayCalendarLabel(automatic)}`
+      : settings.holidayCalendar === "none"
+        ? t("None")
+        : holidayCalendarLabel(settings.holidayCalendar);
   return (
     <fieldset className="settings-section">
       <legend>{t("Calendar settings")}</legend>
@@ -47,6 +53,9 @@ export function CalendarSettings({
                 <option key={zone}>{zone}</option>
               ))}
           </select>
+          <span className="field-selection" aria-hidden="true">
+            {settings.timezone}
+          </span>
         </label>
         <label className="field">
           {t("Language")}
@@ -124,6 +133,11 @@ export function CalendarSettings({
             </option>
           ))}
         </select>
+        {regions.length === 0 && (
+          <span className="field-selection" aria-hidden="true">
+            {holidaySelection}
+          </span>
+        )}
       </label>
       {regions.length > 0 && (
         <label className="field">
@@ -143,6 +157,9 @@ export function CalendarSettings({
               </option>
             ))}
           </select>
+          <span className="field-selection" aria-hidden="true">
+            {holidaySelection}
+          </span>
         </label>
       )}
       <p id="holiday-calendar-help" className="small muted">

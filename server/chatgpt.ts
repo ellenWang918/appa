@@ -13,19 +13,11 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { validatePlan } from "../src/calendar.js";
-
-interface TokenResponse {
-  access_token: string;
-  refresh_token?: string;
-  id_token?: string;
-  scope?: string;
-  expires_in: number;
-}
-interface Credentials extends TokenResponse {
-  client_id: string;
-  subject: string;
-  expiresAt: number;
-}
+import type {
+  CredentialStore,
+  Credentials,
+  TokenResponse,
+} from "./credential-store.js";
 interface LocalSession {
   csrf: string;
   generation: number;
@@ -34,6 +26,9 @@ interface LocalSession {
   models?: Model[] | null;
   refreshing?: Promise<void> | null;
   busy?: boolean;
+  remembered?: boolean;
+  notice?: string;
+  signOutPending?: boolean;
 }
 interface SignInAttempt {
   sessionId: string;
@@ -67,7 +62,10 @@ interface StreamEvent {
 interface ServiceOptions {
   requireCallbackCookie?: boolean;
   requestFetch?: typeof fetch;
+  credentialStore?: CredentialStore;
 }
+
+class ExpiredAuthorization extends Error {}
 
 const ISSUER = "https://auth.openai.com",
   RESOURCE = "https://api.openai.com/v1";
@@ -166,6 +164,7 @@ export async function readResponseStream(response: Response): Promise<Plan> {
 export function createChatgptService({
   requireCallbackCookie = true,
   requestFetch = fetch,
+  credentialStore,
 }: ServiceOptions = {}) {
   const sessions = new Map<string, LocalSession>(),
     attempts = new Map<string, SignInAttempt>();
@@ -175,6 +174,50 @@ export function createChatgptService({
   let callbackUri: string | undefined;
   let discovery: Discovery | undefined;
   let jwks: ReturnType<typeof createRemoteJWKSet> | undefined;
+  const desktopSession: LocalSession | null = credentialStore
+    ? { csrf: random(), generation: 0, credentials: null, account: null }
+    : null;
+  let persistence: Promise<void> = Promise.resolve();
+  async function persistConnection(session: LocalSession) {
+    if (!credentialStore) return;
+    const generation = session.generation;
+    const saved =
+      session.credentials &&
+      session.account &&
+      session.credentials.refresh_token
+        ? {
+            version: 1 as const,
+            hostId: metadata.hostId,
+            account: { ...session.account },
+            credentials: { ...session.credentials },
+          }
+        : null;
+    const write = persistence
+      .catch(() => {})
+      .then(async () => {
+        if (session.generation !== generation) return;
+        if (saved) await credentialStore.save(saved);
+        else await credentialStore.clear();
+      });
+    persistence = write;
+    try {
+      await write;
+      assertGeneration(session, generation);
+      session.remembered = !!saved;
+      session.signOutPending = false;
+      session.notice =
+        saved || !session.credentials
+          ? undefined
+          : "Sign-in is available for this session only. Sign in again to allow Appa to remember it.";
+    } catch {
+      if (session.generation !== generation) return;
+      session.remembered = false;
+      session.signOutPending = !session.credentials;
+      session.notice = session.credentials
+        ? "Signed in for this session. Appa could not securely remember your sign-in."
+        : "Signed out for this session. Appa could not remove the saved sign-in. Try signing out again before closing the app.";
+    }
+  }
   const json = (res: ServerResponse, status: number, data: unknown) => {
     res.writeHead(status, {
       "Content-Type": "application/json",
@@ -226,13 +269,28 @@ export function createChatgptService({
       body: new URLSearchParams(values),
       signal: AbortSignal.timeout(20000),
     });
-    if (!response.ok)
+    if (!response.ok) {
+      const failure = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (
+        failure?.error === "invalid_grant" ||
+        failure?.error === "invalid_client" ||
+        response.status === 401
+      )
+        throw new ExpiredAuthorization(
+          "Your ChatGPT connection expired. Sign in again.",
+        );
       throw new Error(
         "ChatGPT authorization could not be completed. Please connect again.",
       );
+    }
     const tokens = (await response.json()) as TokenResponse;
     if (
       typeof tokens.access_token !== "string" ||
+      !tokens.access_token ||
+      !Number.isFinite(tokens.expires_in) ||
+      tokens.expires_in < 0 ||
       !tokens.scope?.split(" ").includes("chatgpt.tokens.use.direct")
     )
       throw new Error(
@@ -245,24 +303,38 @@ export function createChatgptService({
       throw new Error("Connect your ChatGPT account to create an AI plan.");
     if (session.credentials.expiresAt > Date.now() + 60000)
       return session.credentials.access_token;
-    if (!session.credentials.refresh_token)
-      throw new Error("Your ChatGPT connection expired. Connect again.");
+    if (!session.credentials.refresh_token) {
+      await expireConnection(session, session.generation);
+      throw new ExpiredAuthorization(
+        "Your ChatGPT connection expired. Sign in again.",
+      );
+    }
     const credentials = session.credentials,
       generation = session.generation;
     if (!session.refreshing) {
       const refreshing: Promise<void> = (async () => {
-        const tokens = await tokenRequest({
-          grant_type: "refresh_token",
-          client_id: credentials.client_id,
-          refresh_token: credentials.refresh_token!,
-          resource: RESOURCE,
-        });
+        let tokens: TokenResponse;
+        try {
+          tokens = await tokenRequest({
+            grant_type: "refresh_token",
+            client_id: credentials.client_id,
+            refresh_token: credentials.refresh_token!,
+            resource: RESOURCE,
+          });
+        } catch (error) {
+          assertGeneration(session, generation);
+          if (error instanceof ExpiredAuthorization) {
+            await expireConnection(session, generation);
+          }
+          throw error;
+        }
         assertGeneration(session, generation);
         session.credentials = {
           ...credentials,
           ...tokens,
           expiresAt: Date.now() + tokens.expires_in * 1000,
         };
+        await persistConnection(session);
       })().finally(() => {
         if (session.refreshing === refreshing) session.refreshing = null;
       });
@@ -280,6 +352,15 @@ export function createChatgptService({
         "Your ChatGPT connection changed. Connect again if needed.",
       );
   }
+  async function expireConnection(session: LocalSession, generation: number) {
+    assertGeneration(session, generation);
+    session.generation++;
+    session.credentials = null;
+    session.account = null;
+    session.models = null;
+    await persistConnection(session);
+    session.notice ||= "Your ChatGPT connection expired. Sign in again.";
+  }
   async function modelsFor(session: LocalSession) {
     const generation = session.generation;
     const token = await ensureToken(session);
@@ -288,6 +369,12 @@ export function createChatgptService({
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15000),
     });
+    if (response.status === 401) {
+      await expireConnection(session, generation);
+      throw new ExpiredAuthorization(
+        "Your ChatGPT connection expired. Sign in again.",
+      );
+    }
     if (!response.ok)
       throw new Error(
         "Could not load models for this ChatGPT account. Try connecting again.",
@@ -405,6 +492,9 @@ export function createChatgptService({
         label: session.account.label,
       });
       await saveMetadata();
+      assertGeneration(session, attempt.generation + 1);
+      await persistConnection(session);
+      assertGeneration(session, attempt.generation + 1);
     } catch (error) {
       status = 400;
       message = errorMessage(
@@ -458,6 +548,27 @@ export function createChatgptService({
         metadata = { hostId: `urn:uuid:${randomUUID()}`, accounts: [] };
         await saveMetadata();
       }
+      if (credentialStore && desktopSession) {
+        try {
+          const saved = await credentialStore.load();
+          if (saved) {
+            const account = metadata.accounts.find(
+              (a) => a.id === saved.account.id,
+            );
+            if (
+              saved.hostId !== metadata.hostId ||
+              account?.subject !== saved.credentials.subject
+            )
+              throw new Error();
+            desktopSession.credentials = saved.credentials;
+            desktopSession.account = { id: account.id, label: account.label };
+            desktopSession.remembered = true;
+          }
+        } catch {
+          desktopSession.notice =
+            "Your saved ChatGPT sign-in could not be restored. Sign in again.";
+        }
+      }
     },
     close() {
       callbackServer?.closeAllConnections();
@@ -492,7 +603,7 @@ export function createChatgptService({
         if (url.pathname === "/api/session" && req.method === "GET") {
           if (!session) {
             sessionId = random();
-            session = {
+            session = desktopSession || {
               csrf: random(),
               generation: 0,
               credentials: null,
@@ -504,6 +615,16 @@ export function createChatgptService({
               `calendar-session=${sessionId}; Path=/; HttpOnly; SameSite=Lax`,
             );
           }
+          if (session.credentials) {
+            try {
+              await ensureToken(session);
+            } catch (error) {
+              session.notice =
+                error instanceof ExpiredAuthorization
+                  ? "Your ChatGPT connection expired. Sign in again."
+                  : "ChatGPT could not renew your sign-in. Check your connection and try again.";
+            }
+          }
           return json(res, 200, {
             csrf: session.csrf,
             connected: !!session.credentials,
@@ -513,6 +634,9 @@ export function createChatgptService({
               label,
             })),
             models: session.models || [],
+            remembered: !!session.remembered,
+            notice: session.notice,
+            signOutPending: !!session.signOutPending,
           });
         }
         if (!session)
@@ -590,6 +714,7 @@ export function createChatgptService({
           session.account = null;
           session.models = null;
           session.refreshing = null;
+          await persistConnection(session);
           for (const [key, attempt] of attempts)
             if (attempt.sessionId === sessionId) attempts.delete(key);
           let revoked = true;
@@ -621,7 +746,7 @@ export function createChatgptService({
           } catch {
             revoked = false;
           }
-          return json(res, 200, { revoked });
+          return json(res, 200, { revoked, notice: session.notice });
         }
         if (url.pathname === "/api/plan" && req.method === "POST") {
           const input = await body(req);
@@ -635,6 +760,7 @@ export function createChatgptService({
             throw new Error("One plan is already being created. Please wait.");
           session.busy = true;
           try {
+            const generation = session.generation;
             const token = await ensureToken(session),
               models = session.models || (await modelsFor(session)),
               model = input.model || models[0].id;
@@ -666,8 +792,12 @@ export function createChatgptService({
                 },
               }),
             });
+            if (response.status === 401)
+              await expireConnection(session, generation);
+            const plan = await readResponseStream(response);
+            assertGeneration(session, generation);
             return json(res, 200, {
-              plan: await readResponseStream(response),
+              plan,
             });
           } finally {
             session.busy = false;

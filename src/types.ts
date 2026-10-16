@@ -71,6 +71,18 @@ export interface Slot {
   done: boolean;
   duration: number;
 }
+export interface TaskEdit {
+  title: string;
+  date: string;
+  start: number;
+  minutes: number;
+}
+export interface GoalEdit {
+  name: string;
+  kind: "project" | "recurring";
+  perWeek: number | null;
+  steps: Pick<Task, "id" | "title" | "minutes" | "dependsOn">[];
+}
 export interface RecoveryChange {
   id: string;
   title: string;
@@ -115,6 +127,9 @@ export interface SessionResponse {
   account: Account | null;
   accounts: Account[];
   models: Model[];
+  remembered?: boolean;
+  notice?: string;
+  signOutPending?: boolean;
 }
 export interface ApiRequests {
   session: undefined;
@@ -127,6 +142,6 @@ export interface ApiResponses {
   session: SessionResponse;
   models: { models: Model[] };
   "auth/start": { url: string };
-  "auth/disconnect": { revoked: boolean };
+  "auth/disconnect": { revoked: boolean; notice?: string };
   plan: { plan: Plan };
 }

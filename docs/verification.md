@@ -1,5 +1,83 @@
 # Verification status
 
+## Local Windows update to 0.1.3 — 2026-10-16
+
+- Built and installed Appa 0.1.3 over the existing per-user installation. Installer exit code is zero, executable product version is 0.1.3.0, and the installed application archive exactly matches the verified build.
+- The saved storage origin, account registration and any existing credential file were unchanged by installation. A private copy of the existing profile was retained under the ignored `.local/` directory before updating. No calendar or account data was reset.
+- The installed processes are responding and the private production service is listening. An unauthenticated status request returns HTTP 403 as expected. Native in-window interactions and real ChatGPT authorization were not repeated.
+- All 72 automated checks, strict TypeScript checks and the production build pass. Package inspection confirms the compiled frontend, runtime and protected credential store, with no source, tests, private QA, source maps, registrations or credentials. The local installer and SHA-256 checksum are retained under `release/`; this update does not publish a GitHub release.
+
+## Local Windows update to 0.1.2 — 2026-10-16
+
+- Built and installed Appa 0.1.2 in the existing per-user installation. Installer exit code was zero; executable product version is 0.1.2.0. The installed application archive matches the newly packaged archive exactly.
+- The existing desktop storage-origin configuration retained the same hash across installation. Desktop and Start menu shortcuts both target the installed Appa executable. No profile or credential files were reset.
+- The installed Appa process is running and responding. Its private production service is listening under that process and returns HTTP 403 to an unauthenticated request, as expected. Native in-window interactions and real ChatGPT authorization were not repeated; no visible-window verification is claimed.
+- All 65 tests, strict TypeScript checks and the production build pass. Archive inspection confirms compiled frontend/runtime files and excludes source, tests, QA artifacts, source maps, registration files and credentials. The 0.1.2 installer and SHA-256 checksum are retained under release/. No remote release was published.
+
+## Settings button roles — 2026-10-16
+
+Applied the user's section-specific hierarchy: User sign-in primary / Done secondary; Calendar and Goal Save settings primary / Cancel secondary; Backup Done primary / Export and Import secondary. Live browser inspection confirmed all four sections. DESIGN.md records these explicit preferences; planner sign-in retains its supporting role. All 65 tests and the production build pass. No saved settings or account connection was changed during verification; native packaging was not repeated.
+
+## Button usage rules — 2026-10-16
+
+- Applied behavior guidance while preserving Appa's visual baseline: labelled destructive confirmations, independent supporting actions, icon-only hover/focus tooltips, external launch indicators and Check connection wording.
+- In the isolated reference workspace, a populated two-step plan and its prerequisite survive Back/Continue editing, planner closure and browser reload. Remove step and Undo removal restore the complete plan and prerequisite. The user's main workspace was not used for these edits.
+- Keyboard Tab reveals an arrow's tooltip and Escape dismisses it. Dialog tooltips render above the modal. At 390px the labelled removal actions fit without page or dialog horizontal overflow; the normal viewport was restored. The reset confirmation displays Remove example goals and was cancelled. Browser warning/error logs were empty.
+- All 65 automated tests, strict TypeScript checks and the production build pass. Native installer packaging, live-account sign-in/status checks and destructive backup replacement were not repeated. No separate audit-report or screenshot files were produced for this change.
+
+## Shared typography and audit improvements — 2026-10-16
+
+- Applied shared size, weight, line-height and tracking tokens across the active calendar, task cards, settings and dialogs. The approved 17px/13px title/body ratio and outer card layout remain. Settings headings, form values and actions now follow their documented roles; numeric information uses tabular figures.
+- Darkened secondary text, selected-date fills and the current-time indicator. All 20 distinct opaque foreground/background pairs sampled across the checked views exceed 4.5:1; the lowest measured ratio is 4.919:1. This is a scoped contrast check, not a full accessibility-conformance claim.
+- Browser checks cover Day, Week, Month, task read/edit states, all four Settings sections, the planner and goal details. At 390px and 360px, Month preserves complete sample task names with ordinary word wrapping and no page overflow. Narrow Settings exposes complete timezone and holiday-region summaries. Test selections were cancelled; saved preferences and tasks were retained. Browser warning/error logs were empty.
+- Captures were collected on 15 October 2026 under `../qa/typography-implementation-2026-10-15/`. Combined full-view and focused comparisons were reviewed, including the correction of an initial mobile word-wrapping issue. The current `../design-qa.md` records final result: passed; the previous task-card QA report is archived alongside the captures.
+- All 65 tests, strict TypeScript checks and the production build pass. The existing holiday-data chunk-size advisory remains. The live development preview was restarted for handoff and verified at its normal 1280 × 720 viewport with the 17px/13px task card visible, no horizontal overflow and empty warning/error logs. Screenshot: `../qa/typography-implementation-2026-10-15/14-live-handoff-2026-10-16.png`. Native installer packaging, 200% text resizing, user text-spacing overrides and screen-reader verification were not repeated.
+
+## Task card typography — 2026-10-15
+
+Applied the supplied event-details image's typography proportions to the existing floating task card: 17px title, 13px body, 360px card and 34px actions. Desktop and 390px browser checks confirmed that details and native edit fields fit without horizontal overflow; Edit/Cancel preserved the saved task. Browser warning/error logs were empty. All 65 tests and the production build passed. Full and focused source/before/after comparisons passed; the report is archived at `../qa/typography-implementation-2026-10-15/task-card-design-qa-before.md`. Native packaging was not repeated for this CSS-only change.
+
+## Compact calendar content — 2026-10-15
+
+- Reduced content sizes inside the existing calendar card: header 64→52px, title 20→17px, Week date row 54→44px, sample hourly spacing 96→80px and composer 650×58→560×48px. The measured outer card rectangle, 8px desktop inset and 250px sidebar remain unchanged. Day/Month headers, event labels and task-list spacing are also more compact.
+- Full and focused before/after comparisons are in `../qa/calendar-compact-comparison.png` and `../qa/calendar-compact-header-composer.png`; `../design-qa.md` records final result: passed. Browser checks cover Day, Week and Month with no page-level overflow.
+- Three consecutive five-minute steps in the isolated QA preview render as non-overlapping 18px event blocks with their text fully inside. Undo removed the synthetic goal. At 390×844, the 4px panel inset and 48px composer remain contained; the viewport override was reset. Browser warning/error logs are empty.
+- All 65 automated tests and the strict TypeScript/production build pass. The existing holiday-data bundle advisory remains. The live preview is left on Week; screenshot: `../qa/calendar-compact-after.png`. Desktop packaging and live-account verification were not repeated for this presentation-only change.
+
+## Shared calendar surface and reduced margins — 2026-10-15
+
+- Applied the approved two-surface layout: the menu blends into the soft grey canvas, and one rounded white right-hand panel encloses the title, view/navigation controls, calendar and floating composer. The outer margin is 8px on desktop and 4px on narrow screens.
+- Browser checks cover Week, Day and Month, Today navigation, and opening floating task details. Existing calendar data was retained. An isolated synthetic preview provided an empty Week calendar for a same-size comparison with the approved mockup. Full and focused comparison evidence is in `../qa/calendar-surface-comparison.png` and `../qa/calendar-surface-header-comparison.png`; `../design-qa.md` records final result: passed.
+- At 390 x 844, Day retains its title and mobile controls inside the panel, the margin measures 4px on all edges, and there is no page-level horizontal overflow. The viewport override was reset. Browser warning/error logs are empty.
+- All 65 automated tests and the strict TypeScript/production build pass. The existing holiday bundle advisory remains. The live preview is left on Week; screenshot: `../qa/calendar-surface-live.png`. Desktop packaging and live-account verification were not repeated for this layout change.
+
+## Settings side menu — 2026-10-15
+
+- Settings now has a left menu in the requested order: User, Calendar settings, Goal settings, Backup. User opens by default. The content area shows only the selected section, with Save settings and Cancel for Calendar/Goal and Done for User/Backup. The active menu item is announced with aria-current, and its content region is labelled by that item.
+- Calendar/Goal drafts remain in the parent form while navigating. User stays mounted but hidden in other sections to preserve an unfinished sign-in. Browser checks confirmed that each section exposes only its relevant controls, week-start changes and native time edits survive a switch away and back, and Cancel discards the draft. The original calendar preferences were retained.
+- All 65 automated checks and the strict TypeScript/production build pass. Browser warning/error logs are empty. The existing holiday-bundle size advisory remains. The real live preview is left on Settings → User; screenshot: `../qa/settings-side-menu.png`. Desktop packaging and live-account authorization were not repeated for this layout change.
+
+## Remembered ChatGPT sign-in and User settings — 2026-10-15
+
+- Settings now starts with User, providing ChatGPT sign-in, the active account, connection status and Sign out. The planner renders Use your ChatGPT plan only when disconnected; connected accounts retain a compact model selector. Returning from the system browser or checking the pending sign-in updates the connection automatically.
+- Desktop stores the active account's validated OAuth credentials in `connection/credentials.bin` using Electron safeStorage with Windows DPAPI. The protected record is bound to the saved host and registered account identity. No password or plaintext-token file is stored. Browser-development credentials remain memory-only. Sign out clears the encrypted record and attempts revocation; failed file removal exposes a retry action.
+- All 65 automated checks and the strict TypeScript/production build pass. Added checks cover restoration after restart, encrypted disk storage, refresh-token rotation across restarts, concurrent renewal, revoked grants versus temporary service errors, unavailable encryption, corrupt credential recovery, and retrying failed sign-out removal. Existing cancellation checks still pass. The existing holiday-bundle size advisory remains.
+- Three separate hidden Electron processes with an isolated synthetic profile verified real Windows encryption, restoration through the production local service, removal on sign-out, and remaining signed out after another restart. These tests do not use a live ChatGPT account.
+- A separate browser fixture verified the connected User account and Sign out control, the absence of the planner sign-in panel with a model selector present, and the return of sign-in after logout. Browser warning/error logs are empty. The real live preview is left on Settings → User; screenshot: `../qa/user-settings.png`.
+- Real ChatGPT authorization and inference remain pending. The installed desktop copy has not been repackaged or replaced for this change. Session renewal follows [OpenAI's account/session guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions); Windows protection follows [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage).
+
+## Floating task cards — 2026-10-15
+
+- Task events in Day, Week and Month now open an anchored non-modal card. The user-supplied reference guides its goal/title, date, range, duration, actions and later-step list. Edit switches the same card to name, date and start/end fields; Cancel returns to details and Update derives the duration and saves. No dimming layer or focus trap is used.
+- Browser checks cover all three calendar views, in-place Update and Cancel, invalid ranges, date/time changes, completion and Undo, later-step navigation, outside-click and Escape dismissal, restored keyboard focus, and 390 × 844 viewport bounds without horizontal overflow. Test edits and completion were undone. Final view/edit captures and the combined comparison are in `../../appa-screen-captures/`; `design-qa.md` records a passed comparison. Browser error logs are empty.
+- All 58 automated checks and the strict TypeScript/production build pass. The installed desktop app has not been repackaged or updated. Live shared-choice and midnight-picker interactions were not repeated.
+
+## Planned task editing — 2026-10-15
+
+- Pending tasks can be edited from day details, including shared alternatives: task name, date, start time and duration. Edits validate available hours, overlaps, prerequisite dates and remaining shared reservations, preserve recurring occurrence identity, and support Undo and backup reload.
+- Live browser verification changed Review the draft from 17 October at 18:00 to 18 October at 19:00 with a 35-minute duration. The details displayed all three saved values; Undo restored the prior schedule. An out-of-hours edit remained in the form with an error. Restored the example task's original 17 October / 18:00 / 15-minute schedule, reloaded, and reopened the editor to confirm persistence. Browser error logs are empty. The editor is left open in the side preview; screenshot: `../../appa-screen-captures/task-editor.png`.
+- All 58 automated checks and the strict TypeScript/production build pass. Six added checks cover editing, reload and Undo, invalid inputs and atomic rejection, prerequisites, recurring identity, shared reservations and choices, and non-editable statuses. The existing holiday bundle size advisory remains. The installed desktop app has not been repackaged or updated for this change.
+
 ## Windows installation and shortcut launch — 2026-10-15
 
 - Built and installed Appa 0.1.1 for the current Windows user. The desktop and Start menu Appa shortcuts both target the installed executable under `%LOCALAPPDATA%/Programs/Appa`; Windows Installed apps lists version 0.1.1. Installer exit code is zero.
@@ -83,6 +161,8 @@
 - Real account consent/inference and native installation were not repeated for these fixes. This changes source and compiled build outputs; it does not publish a new installer.
 
 ## Earlier verification
+
+Active-goal editing verified on 2026-10-16: all 72 automated checks pass and the production build passes. Regression coverage includes rename preservation, step changes, recurrence rebuilding, type conversion, reload, Undo, invalid inputs and shared-slot conflicts. Isolated browser examples verified rename/duration/add/remove, Undo removal, save and whole-goal Undo, recurrence changes and blank-name rejection. The recurring editor fits a 390×844 viewport. These checks apply to source and live preview; the installed desktop package has not been rebuilt for this feature.
 
 Date: 2026-10-13. Target: Windows x64, version 0.1.0.
 

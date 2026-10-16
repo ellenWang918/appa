@@ -1,13 +1,14 @@
 import { useInterfaceText } from "./InterfaceLanguage";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { SetStateAction } from "react";
 import type {
   CalendarState,
   Goal,
+  GoalEdit,
   Plan,
   PlannerDraft,
   PlanTask,
   ScheduleOptions,
-  SessionResponse,
   Settings as PlanningSettings,
 } from "./types";
 import { errorMessage } from "./errors";
@@ -22,10 +23,16 @@ import {
   UploadSimple,
 } from "@phosphor-icons/react";
 import { Dialog, Dot } from "./ui";
-import { api, session } from "./api";
+import { api } from "./api";
 import * as cal from "./calendar";
 import { desktop, localPlace } from "./environment";
 import { CalendarSettings } from "./CalendarSettings";
+import { GoalEditor } from "./GoalEditor";
+import {
+  ChatgptSignIn,
+  UserSettings,
+  useChatgptConnection,
+} from "./ChatgptAccount";
 const minuteInput = (value: number) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 const parseMinute = (value: string) => {
@@ -43,74 +50,28 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
   const t = useInterfaceText();
 
   const [intention, setIntention] = useState(state.draft?.intention || ""),
-    [plan, setPlan] = useState<Plan | null>(state.draft?.plan || null),
+    [plan, updatePlan] = useState<Plan | null>(state.draft?.plan || null),
     [answer, setAnswer] = useState(""),
-    [connection, setConnection] = useState<SessionResponse | null>(null),
     [model, setModel] = useState(""),
-    [accountId, setAccountId] = useState(""),
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
-    [link, setLink] = useState(""),
     [placement, setPlacement] = useState("active");
+  const [editingIntention, setEditingIntention] = useState(false);
+  const [removedPlan, setRemovedPlan] = useState<Plan | null>(null);
+  const showingPlan = !!plan && !plan.clarification && !editingIntention;
+  function setPlan(value: SetStateAction<Plan | null>) {
+    setRemovedPlan(null);
+    updatePlan(value);
+  }
+  const auth = useChatgptConnection(true);
+  const connection = auth.connection;
   const selectedModel =
     connection?.models.find((item) => item.id === model)?.id ||
     connection?.models[0]?.id ||
     "";
   useEffect(() => {
-    let alive = true;
-    async function refresh() {
-      try {
-        const result = await session();
-        if (!alive) return;
-        setConnection(result);
-        if (result.connected && !result.models.length) {
-          const data = await api("models");
-          if (alive) setConnection({ ...result, models: data.models });
-        }
-      } catch (caught) {
-        if (alive) setError(errorMessage(caught));
-      }
-    }
-    refresh();
-    window.addEventListener("focus", refresh);
-    return () => {
-      alive = false;
-      window.removeEventListener("focus", refresh);
-    };
-  }, []);
-  useEffect(() => {
     onDraft({ intention, plan });
   }, [intention, plan]);
-  async function connect() {
-    setBusy("connect");
-    setError("");
-    try {
-      const result = await api("auth/start", { accountId: accountId || null });
-      setLink(result.url);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy("");
-    }
-  }
-  async function checkConnection() {
-    setBusy("check");
-    setError("");
-    try {
-      const result = await session();
-      if (!result.connected)
-        throw new Error(
-          "Finish signing in in the ChatGPT tab, then check again.",
-        );
-      const data = await api("models");
-      setConnection({ ...result, models: data.models });
-      setLink("");
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy("");
-    }
-  }
   async function generate() {
     setBusy("plan");
     setError("");
@@ -124,6 +85,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
       });
       if (plan?.clarification) setIntention(text);
       setPlan(result.plan);
+      setEditingIntention(false);
       setAnswer("");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -143,7 +105,8 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
     );
   }
   function removeTask(index: number) {
-    setPlan(
+    setRemovedPlan(plan);
+    updatePlan(
       (previous) =>
         previous && {
           ...previous,
@@ -170,11 +133,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
   }
   return (
     <Dialog
-      title={
-        plan && !plan.clarification
-          ? t("Make this plan yours")
-          : t("Plan a goal")
-      }
+      title={showingPlan ? t("Make this plan yours") : t("Plan a goal")}
       onClose={onClose}
       wide
     >
@@ -195,129 +154,36 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
             disabled={!!busy}
           />
         </label>
-        <div className="connection-box">
-          <div className="connection-title">
-            <Sparkle size={20} />
-            <strong>
-              {connection?.connected
-                ? t("ChatGPT connected")
-                : t("Use your ChatGPT plan")}
-            </strong>
-            {connection?.connected && (
-              <CheckCircle className="teal-text" size={19} />
-            )}
+        {connection && !connection.connected && (
+          <div className="connection-box">
+            <div className="connection-title">
+              <Sparkle size={20} aria-hidden="true" />
+              <strong>{t("Use your ChatGPT plan")}</strong>
+            </div>
+            <ChatgptSignIn auth={auth} disabled={!!busy} />
           </div>
-          {connection?.connected ? (
-            <>
-              <p className="small muted">
-                {connection.account?.label}{" "}
-                {t("· Uses your existing plan limits.")}
-              </p>
-              <label className="field small">
-                {t("Model")}
-                <select
-                  value={selectedModel}
-                  onChange={(event) => setModel(event.target.value)}
-                  disabled={!!busy}
-                >
-                  {connection.models.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="text-button small"
-                disabled={!!busy}
-                onClick={async () => {
-                  setBusy("disconnect");
-                  try {
-                    const result = await api("auth/disconnect", {});
-                    setConnection(await session());
-                    if (!result.revoked)
-                      setError(
-                        "Disconnected here. Open ChatGPT Settings to revoke the connection; remote revocation could not be confirmed.",
-                      );
-                  } catch (caught) {
-                    setError(errorMessage(caught));
-                  } finally {
-                    setBusy("");
-                  }
-                }}
-              >
-                {t("Disconnect")}
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="small muted">
-                {t(
-                  "Connect your own eligible Plus or Pro account. Your calendar stays",
-                )}{" "}
-                {localPlace}
-                {t(". Your goal text goes to OpenAI when you create a plan.")}
-              </p>
-              {connection && connection.accounts.length > 0 && (
-                <label className="field small">
-                  {t("Account")}
-                  <select
-                    value={accountId}
-                    onChange={(event) => setAccountId(event.target.value)}
-                  >
-                    <option value="">{t("Connect another account")}</option>
-                    {connection.accounts.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {link ? (
-                <div className="connect-actions">
-                  <a
-                    className="primary"
-                    href={link}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {t("Continue to ChatGPT")}
-                  </a>
-                  <button
-                    className="secondary"
-                    disabled={!!busy}
-                    onClick={checkConnection}
-                  >
-                    {busy === "check" ? t("Checking…") : t("I’ve signed in")}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  className="secondary"
-                  onClick={connect}
-                  disabled={!!busy || !connection}
-                >
-                  {busy === "connect"
-                    ? t("Preparing sign-in…")
-                    : t("Sign in with ChatGPT")}
-                </button>
-              )}
-              <p className="fine-print">
-                {desktop
-                  ? t("Reconnect after you quit and reopen the app.")
-                  : t("Reconnect after the local app restarts.")}{" "}
-                <a
-                  href="https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t("How it works")}
-                </a>
-              </p>
-            </>
-          )}
-        </div>
+        )}
+        {connection?.connected && (
+          <label className="field small planner-model">
+            {t("Model")}
+            <select
+              value={selectedModel}
+              onChange={(event) => setModel(event.target.value)}
+              disabled={!!busy || !connection.models.length}
+            >
+              {connection.models.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {(auth.error || connection?.notice) && (
+          <p className="inline-error" role="alert">
+            {t(auth.error || connection?.notice || "")}
+          </p>
+        )}
         {plan?.clarification && (
           <div className="clarification">
             <label className="field">
@@ -331,15 +197,25 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
             </label>
           </div>
         )}
-        {(!plan || plan.clarification) && (
+        {!showingPlan && (
           <div className="planner-start-actions">
+            {plan && !plan.clarification && (
+              <button
+                className="primary"
+                onClick={() => setEditingIntention(false)}
+                disabled={!!busy}
+              >
+                {t("Continue editing plan")}
+              </button>
+            )}
             <button
-              className="primary"
+              className={plan && !plan.clarification ? "supporting" : "primary"}
               onClick={generate}
               disabled={
                 !!busy ||
                 !intention.trim() ||
                 !connection?.connected ||
+                !selectedModel ||
                 (!!plan?.clarification && !answer.trim())
               }
             >
@@ -347,27 +223,31 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                 ? t("Creating your plan…")
                 : plan?.clarification
                   ? t("Continue planning")
-                  : t("Create an AI plan")}
+                  : plan
+                    ? t("Create a new AI plan")
+                    : t("Create an AI plan")}
               <Sparkle size={17} />
             </button>
-            <button
-              className="text-button"
-              disabled={!!busy}
-              onClick={() =>
-                setPlan({
-                  goalName: "",
-                  kind: "project",
-                  perWeek: null,
-                  clarification: null,
-                  tasks: [{ title: "", minutes: 15, dependsOn: [] }],
-                })
-              }
-            >
-              {t("Write a plan myself")}
-            </button>
+            {!plan && (
+              <button
+                className="text-button"
+                disabled={!!busy}
+                onClick={() =>
+                  setPlan({
+                    goalName: "",
+                    kind: "project",
+                    perWeek: null,
+                    clarification: null,
+                    tasks: [{ title: "", minutes: 15, dependsOn: [] }],
+                  })
+                }
+              >
+                {t("Write a plan myself")}
+              </button>
+            )}
           </div>
         )}
-        {plan && !plan.clarification && (
+        {showingPlan && plan && (
           <div className="plan-editor">
             <div className="two-fields">
               <label className="field">
@@ -487,15 +367,28 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                     <span>{t("min")}</span>
                   </label>
                   <button
-                    className="icon-button"
+                    className="text-button danger-action remove-step"
+                    data-action="destructive"
                     onClick={() => removeTask(index)}
                     aria-label={t("Remove step {v0}", { v0: index + 1 })}
                   >
                     <Trash size={18} />
+                    {t("Remove step")}
                   </button>
                 </div>
               ))}
             </div>
+            {removedPlan && (
+              <div className="draft-removal-notice" role="status">
+                <span>{t("Step removed.")}</span>
+                <button
+                  className="text-button"
+                  onClick={() => setPlan(removedPlan)}
+                >
+                  {t("Undo removal")}
+                </button>
+              </div>
+            )}
             <button
               className="text-button add-step"
               disabled={plan.tasks.length >= 30}
@@ -535,7 +428,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
               <button
                 className="text-button"
                 onClick={() => {
-                  setPlan(null);
+                  setEditingIntention(true);
                   setError("");
                 }}
               >
@@ -571,6 +464,13 @@ interface SettingsProps {
   onExport: () => void;
   onImport: () => void;
 }
+const settingsSections = [
+  { id: "user", label: "User" },
+  { id: "calendar", label: "Calendar settings" },
+  { id: "goals", label: "Goal settings" },
+  { id: "backup", label: "Backup" },
+] as const;
+
 export function Settings({
   state,
   onClose,
@@ -582,97 +482,170 @@ export function Settings({
 
   const [settings, setSettings] = useState(state.settings),
     [error, setError] = useState("");
+  const [section, setSection] =
+    useState<(typeof settingsSections)[number]["id"]>("user");
+  const panel = useRef<HTMLDivElement>(null);
+  const editable = section === "calendar" || section === "goals";
   return (
-    <Dialog title={t("Settings")} onClose={onClose} wide>
-      <form
-        className="dialog-body"
-        onSubmit={(event) => {
-          event.preventDefault();
-          try {
-            onSave(settings);
-          } catch (caught) {
-            setError(errorMessage(caught));
-          }
-        }}
-      >
-        <CalendarSettings settings={settings} onChange={setSettings} />
-        <fieldset className="settings-section">
-          <legend>{t("Goal settings")}</legend>
-          <p className="small muted">
-            {t("Choose when Appa can schedule your goals.")}
-          </p>
-          <div className="two-fields">
-            <label className="field">
-              {t("Available from")}
-              <input
-                type="time"
-                value={minuteInput(settings.start)}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    start: parseMinute(event.target.value),
-                  })
-                }
-                required
-              />
-            </label>
-            <label className="field">
-              {t("Until")}
-              <input
-                type="time"
-                value={minuteInput(settings.end)}
-                onChange={(event) =>
-                  setSettings({
-                    ...settings,
-                    end: parseMinute(event.target.value),
-                  })
-                }
-                required
-              />
-            </label>
-          </div>
-          <p className="small muted">
-            {t(
-              "Pending steps are rearranged to fit. When time is tight, a shared slot lets you choose one activity.",
+    <Dialog
+      title={t("Settings")}
+      onClose={onClose}
+      wide
+      className="settings-dialog"
+    >
+      <div className="settings-layout">
+        <nav className="settings-menu" aria-label={t("Settings sections")}>
+          {settingsSections.map((item) => (
+            <button
+              key={item.id}
+              id={`settings-menu-${item.id}`}
+              type="button"
+              aria-current={section === item.id ? "page" : undefined}
+              aria-controls="settings-panel"
+              onClick={() => {
+                setSection(item.id);
+                setError("");
+                panel.current?.scrollTo(0, 0);
+              }}
+            >
+              {t(item.label)}
+            </button>
+          ))}
+        </nav>
+        <form
+          className="settings-content"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!editable) return;
+            try {
+              onSave(settings);
+            } catch (caught) {
+              if (
+                !Number.isFinite(settings.start) ||
+                !Number.isFinite(settings.end) ||
+                settings.start >= settings.end
+              )
+                setSection("goals");
+              setError(errorMessage(caught));
+            }
+          }}
+        >
+          <div
+            ref={panel}
+            id="settings-panel"
+            className="settings-panel"
+            role="region"
+            aria-labelledby={`settings-menu-${section}`}
+          >
+            <div hidden={section !== "user"}>
+              <UserSettings />
+            </div>
+            {section === "calendar" && (
+              <CalendarSettings settings={settings} onChange={setSettings} />
             )}
-          </p>
-        </fieldset>
-        <fieldset className="settings-section">
-          <legend>{t("Backup")}</legend>
-          <p className="small muted">
-            {desktop
-              ? t(
-                  "Your goals and progress are saved on this computer. Export a backup before reinstalling or moving to another computer. You can import a backup from the browser prototype here.",
-                )
-              : t(
-                  "Your goals and progress live in this browser on this device. Export a backup before clearing browser data.",
-                )}
-          </p>
-          <div className="connect-actions">
-            <button type="button" className="secondary" onClick={onExport}>
-              <DownloadSimple size={17} />
-              {t("Export backup")}
-            </button>
-            <button type="button" className="secondary" onClick={onImport}>
-              <UploadSimple size={17} />
-              {t("Import backup")}
-            </button>
+            {section === "goals" && (
+              <fieldset className="settings-section">
+                <legend>{t("Goal settings")}</legend>
+                <p className="small muted">
+                  {t("Choose when Appa can schedule your goals.")}
+                </p>
+                <div className="two-fields">
+                  <label className="field">
+                    {t("Available from")}
+                    <input
+                      type="time"
+                      value={minuteInput(settings.start)}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          start: parseMinute(event.target.value),
+                        })
+                      }
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    {t("Until")}
+                    <input
+                      type="time"
+                      value={minuteInput(settings.end)}
+                      onChange={(event) =>
+                        setSettings({
+                          ...settings,
+                          end: parseMinute(event.target.value),
+                        })
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+                <p className="small muted">
+                  {t(
+                    "Pending steps are rearranged to fit. When time is tight, a shared slot lets you choose one activity.",
+                  )}
+                </p>
+              </fieldset>
+            )}
+            {section === "backup" && (
+              <fieldset className="settings-section">
+                <legend>{t("Backup")}</legend>
+                <p className="small muted">
+                  {desktop
+                    ? t(
+                        "Your goals and progress are saved on this computer. Export a backup before reinstalling or moving to another computer. You can import a backup from the browser prototype here.",
+                      )
+                    : t(
+                        "Your goals and progress live in this browser on this device. Export a backup before clearing browser data.",
+                      )}
+                </p>
+                <div className="connect-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onExport}
+                  >
+                    <DownloadSimple size={17} />
+                    {t("Export backup")}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onImport}
+                  >
+                    <UploadSimple size={17} />
+                    {t("Import backup")}
+                  </button>
+                </div>
+              </fieldset>
+            )}
+            {error && (
+              <p className="inline-error" role="alert">
+                {t(error)}
+              </p>
+            )}
           </div>
-        </fieldset>
-        {error && (
-          <p className="inline-error" role="alert">
-            {t(error)}
-          </p>
-        )}
-        <div className="dialog-actions">
-          <button type="button" className="secondary" onClick={onClose}>
-            {t("Cancel")}
-          </button>
-          <button className="primary" type="submit">
-            {t("Save settings")}
-          </button>
-        </div>
-      </form>
+          <div className="dialog-actions settings-actions">
+            {editable ? (
+              <>
+                <button type="button" className="secondary" onClick={onClose}>
+                  {t("Cancel")}
+                </button>
+                <button className="primary" type="submit">
+                  {t("Save settings")}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className={section === "backup" ? "primary" : "secondary"}
+                onClick={onClose}
+              >
+                {t("Done")}
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
     </Dialog>
   );
 }
@@ -681,15 +654,18 @@ export function GoalDetails({
   state,
   onClose,
   onActivate,
+  onSave,
 }: {
   goal: Goal;
   state: CalendarState;
   onClose: () => void;
   onActivate: () => void;
+  onSave: (edit: GoalEdit) => void;
 }) {
   const t = useInterfaceText();
 
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
   const tasks = state.tasks.filter(
     (task) =>
       task.goalId === goal.id && ["done", "pending"].includes(task.status),
@@ -699,6 +675,22 @@ export function GoalDetails({
       task.goalId === goal.id &&
       ["skipped", "consolidated"].includes(task.status),
   );
+  if (editing)
+    return (
+      <Dialog title={t("Edit goal")} onClose={onClose} wide>
+        <div className="dialog-body">
+          <GoalEditor
+            goal={goal}
+            state={state}
+            onCancel={() => setEditing(false)}
+            onSave={(edit) => {
+              onSave(edit);
+              setEditing(false);
+            }}
+          />
+        </div>
+      </Dialog>
+    );
   return (
     <Dialog title={goal.name} onClose={onClose}>
       <div className="dialog-body">
@@ -714,6 +706,13 @@ export function GoalDetails({
           {tasks.filter((task) => task.status === "pending").length}{" "}
           {t("pending")}
         </p>
+        {goal.status === "active" && (
+          <div className="goal-edit-action">
+            <button className="supporting" onClick={() => setEditing(true)}>
+              {t("Edit goal")}
+            </button>
+          </div>
+        )}
         {goal.status === "later" && tasks.length > 0 && (
           <div className="capacity-box goal-activation">
             <p className="small muted">

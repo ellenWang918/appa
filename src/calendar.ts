@@ -1,12 +1,14 @@
 import type {
   CalendarState,
   GoalColor,
+  GoalEdit,
   Plan,
   PlannerDraft,
   ScheduleOptions,
   Settings,
   Slot,
   Task,
+  TaskEdit,
 } from "./types.js";
 import {
   DEFAULT_CALENDAR_PREFERENCES,
@@ -364,6 +366,86 @@ function commit(before: CalendarState, after: CalendarState, label: string) {
   after.undo = { label, before: snapshot(before), revision: after.revision };
   return after;
 }
+export function editTask(
+  state: CalendarState,
+  taskId: string,
+  edit: TaskEdit,
+  today = localDate(state.settings.timezone),
+) {
+  const next = copy(state);
+  const task = next.tasks.find((item) => item.id === taskId);
+  if (
+    !task ||
+    task.status !== "pending" ||
+    goalFor(next, task)?.status !== "active"
+  )
+    throw new Error("Only pending tasks in active goals can be edited.");
+  if (
+    typeof edit.title !== "string" ||
+    !edit.title.trim() ||
+    edit.title.trim().length > 180
+  )
+    throw new Error("Enter a task name of 1–180 characters.");
+  if (!validDate(edit.date) || edit.date < today)
+    throw new Error("Choose today or a future date.");
+  if (!Number.isInteger(edit.minutes) || edit.minutes < 5 || edit.minutes > 60)
+    throw new Error("Choose a duration of 5–60 minutes.");
+  if (
+    !Number.isInteger(edit.start) ||
+    edit.start < next.settings.start ||
+    edit.start + edit.minutes > next.settings.end
+  )
+    throw new Error("Choose a time within your available hours.");
+  const moved = task.date !== edit.date || task.start !== edit.start;
+  if (moved) {
+    if (
+      task.dependsOn.some((key) => {
+        const prerequisite = next.tasks.find((item) => item.id === key);
+        return (
+          prerequisite &&
+          prerequisite.status !== "done" &&
+          prerequisite.date >= edit.date
+        );
+      })
+    )
+      throw new Error("Schedule this task after its unfinished prerequisites.");
+    if (
+      next.tasks.some(
+        (item) =>
+          item.status === "pending" &&
+          item.dependsOn.includes(task.id) &&
+          item.date <= edit.date,
+      )
+    )
+      throw new Error(
+        "Move the later steps first, then schedule this task before them.",
+      );
+    const choiceKey = `${task.date}/${task.slotId}`;
+    if (next.choices[choiceKey] === task.id) delete next.choices[choiceKey];
+    task.slotId = id();
+  }
+  Object.assign(task, edit, { title: edit.title.trim() });
+  // Check both the destination and the reservation left behind in a shared slot.
+  for (const date of new Set([
+    state.tasks.find((item) => item.id === taskId)!.date,
+    task.date,
+  ])) {
+    const slots = slotsFor(next, date);
+    if (
+      slots.some(
+        (slot, index) =>
+          slot.start < next.settings.start ||
+          slot.start + slot.duration > next.settings.end ||
+          (index > 0 &&
+            slot.start < slots[index - 1].start + slots[index - 1].duration),
+      )
+    )
+      throw new Error(
+        "This time overlaps another task or shared reservation. Choose a free time.",
+      );
+  }
+  return commit(state, next, "Task updated");
+}
 export function selectChoice(
   state: CalendarState,
   date: string,
@@ -624,6 +706,174 @@ export function approvePlan(
   next.sample = false;
   return commit(state, next, later ? "Saved in Later" : "Plan approved");
 }
+export function editGoal(
+  state: CalendarState,
+  goalId: string,
+  edit: GoalEdit,
+  today = localDate(state.settings.timezone),
+) {
+  const next = copy(state);
+  const goal = next.goals.find((item) => item.id === goalId);
+  if (!goal || goal.status !== "active")
+    throw new Error("Only active goals can be edited.");
+  if (
+    typeof edit.name !== "string" ||
+    !edit.name.trim() ||
+    edit.name.trim().length > 120
+  )
+    throw new Error("Enter a goal name of 1–120 characters.");
+  if (!["project", "recurring"].includes(edit.kind))
+    throw new Error("Choose a valid goal type.");
+  const originalPending = state.tasks.filter(
+    (task) => task.goalId === goalId && task.status === "pending",
+  );
+  const completed = state.tasks.filter(
+    (task) => task.goalId === goalId && task.status === "done",
+  );
+  if (
+    !Array.isArray(edit.steps) ||
+    edit.steps.length > Math.max(30, originalPending.length) ||
+    (!edit.steps.length && (edit.kind === "recurring" || !completed.length))
+  )
+    throw new Error(
+      "Keep at least one step, or a completed step, and add no more than 30 steps.",
+    );
+  if (
+    edit.kind === "recurring" &&
+    (!Number.isInteger(edit.perWeek) || edit.perWeek! < 1 || edit.perWeek! > 7)
+  )
+    throw new Error("Choose 1–7 sessions per week.");
+  const allowed = new Set(completed.map((task) => task.id));
+  const ids = new Set<string>();
+  const steps = edit.steps.map((step) => {
+    if (
+      typeof step.id !== "string" ||
+      !step.id ||
+      ids.has(step.id) ||
+      (state.tasks.some((task) => task.id === step.id) &&
+        !originalPending.some((task) => task.id === step.id))
+    )
+      throw new Error("Each editable step needs its own valid identity.");
+    if (
+      typeof step.title !== "string" ||
+      !step.title.trim() ||
+      step.title.trim().length > 180 ||
+      !Number.isInteger(step.minutes) ||
+      step.minutes < 5 ||
+      step.minutes > 60
+    )
+      throw new Error(
+        "Each task needs a title and a duration of 5–60 minutes.",
+      );
+    if (
+      !Array.isArray(step.dependsOn) ||
+      (edit.kind === "recurring" && step.dependsOn.length) ||
+      step.dependsOn.some((key) => !allowed.has(key))
+    )
+      throw new Error(
+        "Choose completed or earlier steps as prerequisites. Recurring activities cannot have prerequisites.",
+      );
+    ids.add(step.id);
+    allowed.add(step.id);
+    return {
+      ...step,
+      title: step.title.trim(),
+      dependsOn: [...new Set(step.dependsOn)],
+    };
+  });
+  goal.name = edit.name.trim();
+  const wasRecurring = !!goal.recurrence;
+  const templates = steps.map(({ title, minutes }) => ({ title, minutes }));
+  const recurringUnchanged =
+    wasRecurring &&
+    edit.kind === "recurring" &&
+    goal.recurrence!.perWeek === edit.perWeek &&
+    JSON.stringify(goal.recurrence!.templates) === JSON.stringify(templates);
+  if (recurringUnchanged) return commit(state, next, "Goal updated");
+  if (edit.kind === "recurring") {
+    const anchor =
+      wasRecurring && goal.recurrence!.perWeek === edit.perWeek
+        ? goal.recurrence!.anchor
+        : today;
+    goal.recurrence = { anchor, perWeek: edit.perWeek!, templates };
+    validateRecurringHours(next.goals, next.settings);
+    next.tasks = next.tasks.filter(
+      (task) => task.goalId !== goalId || task.status !== "pending",
+    );
+  } else {
+    goal.recurrence = null;
+    next.tasks = next.tasks.filter(
+      (task) => task.goalId !== goalId || task.status !== "pending",
+    );
+    // Historical occurrences keep their progress and schedule after recurrence is disabled.
+    for (const task of next.tasks.filter((task) => task.goalId === goalId)) {
+      delete task.activityId;
+      delete task.occurrenceKey;
+    }
+    const pending = steps.map((step) => {
+      const old = !wasRecurring
+        ? originalPending.find((task) => task.id === step.id)
+        : undefined;
+      const task: Task = old
+        ? { ...copy(old), ...step }
+        : {
+            ...step,
+            goalId,
+            status: "pending",
+            date: today,
+            start: next.settings.start,
+            slotId: id(),
+          };
+      return { task, old };
+    });
+    // Keep existing reservations for steps whose duration and prerequisites did not change.
+    const unchanged = pending.filter(
+      ({ task, old }) =>
+        old &&
+        task.minutes === old.minutes &&
+        JSON.stringify(task.dependsOn) === JSON.stringify(old.dependsOn),
+    );
+    next.tasks.push(...unchanged.map(({ task }) => task));
+    const kept = new Set(unchanged.map(({ task }) => task.id));
+    for (const { task, old } of pending.filter(
+      ({ task }) => !kept.has(task.id),
+    )) {
+      const dependencies = task.dependsOn
+        .map((key) => next.tasks.find((item) => item.id === key))
+        .filter((item): item is Task => !!item && item.status !== "done");
+      const first = [
+        today,
+        old?.date || today,
+        ...dependencies.map((item) => addDays(item.date, 1)),
+      ]
+        .sort()
+        .at(-1)!;
+      place(next, task, first);
+      next.tasks.push(task);
+    }
+    moveDependents(next);
+  }
+  for (const [key, taskId] of Object.entries(next.choices)) {
+    if (
+      !next.tasks.some(
+        (task) => task.id === taskId && `${task.date}/${task.slotId}` === key,
+      )
+    )
+      delete next.choices[key];
+  }
+  const scheduled =
+    edit.kind === "recurring" ? extendRecurrences(next, today, goalId) : next;
+  const remaining = new Map(scheduled.tasks.map((task) => [task.id, task]));
+  scheduled.tasks = state.tasks
+    .flatMap((task) => {
+      const updated = remaining.get(task.id);
+      remaining.delete(task.id);
+      return updated ? [updated] : [];
+    })
+    .concat([...remaining.values()]);
+  validateBackup(scheduled, today);
+  return commit(state, scheduled, "Goal updated");
+}
 export function activateGoal(
   state: CalendarState,
   goalId: string,
@@ -663,10 +913,12 @@ export function activateGoal(
 export function extendRecurrences(
   state: CalendarState,
   today = localDate(state.settings.timezone),
+  goalId?: string,
 ) {
   const next = copy(state);
   for (const goal of next.goals.filter(
-    (g) => g.status === "active" && g.recurrence,
+    (g) =>
+      g.status === "active" && g.recurrence && (!goalId || g.id === goalId),
   )) {
     const { anchor, perWeek, templates } = goal.recurrence!;
     const days = Math.floor(
