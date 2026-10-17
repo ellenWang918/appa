@@ -9,12 +9,13 @@ import {
   weekNumber,
 } from "./CalendarViews";
 import { CalendarTimeline } from "./CalendarTimeline";
+import { YearCalendar } from "./YearCalendar";
 import { ResizableDayPanels } from "./ResizableDayPanels";
 import { useHolidayCalendar } from "./useHolidayCalendar";
 import { holidayLabel } from "./holidayDates";
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import type { CalendarView } from "./CalendarViews";
-import type { CalendarState, Slot, Task } from "./types";
+import type { CalendarState, EventDraft, Slot, Task, TaskEdit } from "./types";
 import { errorMessage } from "./errors";
 import {
   ArrowRight,
@@ -36,6 +37,7 @@ import * as cal from "./calendar";
 import { Planner, Settings, GoalDetails } from "./Dialogs";
 import { Dialog, Dot, IconButton } from "./ui";
 import { TaskCard } from "./TaskCard";
+import { EventCreator } from "./EventCreator";
 import { desktop } from "./environment";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
@@ -114,6 +116,8 @@ export function App() {
     [detailsOpen, setDetailsOpen] = useState(false),
     [taskAnchor, setTaskAnchor] = useState<HTMLElement | null>(null),
     [composer, setComposer] = useState(""),
+    [eventDraft, setEventDraft] = useState<EventDraft | null>(null),
+    [eventAnchor, setEventAnchor] = useState<HTMLElement | null>(null),
     [week, setWeek] = useState(() =>
       cal.weekStart(
         dayFor(initial.state.settings.timezone),
@@ -144,6 +148,7 @@ export function App() {
   const t = useInterfaceText(state.settings.language);
 
   const fileInput = useRef<HTMLInputElement>(null),
+    eventTrigger = useRef<HTMLElement | null>(null),
     timelineScroll = useRef<HTMLDivElement>(null),
     timeGrid = useRef<HTMLDivElement>(null),
     [pendingImport, setPendingImport] = useState<CalendarState | null>(null),
@@ -239,9 +244,17 @@ export function App() {
     setVisibleMonth(month);
     setMiniMonth(month);
   }, []);
+  const showVisibleYear = useCallback((year: string) => {
+    setVisibleMonth((month) => `${year}${month.slice(4)}`);
+    setMiniMonth((month) => `${year}${month.slice(4)}`);
+  }, []);
   const timelineDate = view === "day" ? selectedDay : week;
   useEffect(() => {
-    if (view === "month" || !timelineScroll.current || !timeGrid.current)
+    if (
+      (view !== "day" && view !== "week") ||
+      !timelineScroll.current ||
+      !timeGrid.current
+    )
       return;
     const minute = referenceMode
       ? 1080
@@ -252,16 +265,20 @@ export function App() {
       ((minute - 60) / (24 * 60)) * timeGrid.current.clientHeight,
     );
   }, [timelineDate, view, state.settings.timezone, scrollToNowRequest]);
-  const daySlots = cal.slotsFor(state, selectedDay),
+  const daySlots = [
+      ...cal.allDaySlotsFor(state, selectedDay),
+      ...cal.slotsFor(state, selectedDay),
+    ],
     plannedMinutes = cal.plannedMinutesFor(state, selectedDay);
   const goal = state.goals.find((item) => item.id === goalId);
-  const cardTask = state.tasks.find((task) => task.id === selectedTask);
+  const cardTask = selectedTask ? cal.taskFor(state, selectedTask) : undefined;
   const complete = (task: Task) =>
     change(
       (previous) => cal.completeTask(previous, task.id, today),
       "Progress saved.",
     );
   function goToday() {
+    setEventDraft(null);
     setDetailsOpen(false);
     setSelectedDay(today);
     setWeek(cal.weekStart(today, state.settings.weekStartsOn));
@@ -271,23 +288,27 @@ export function App() {
     setSelectedTask(null);
     setScrollToNowRequest((request) => request + 1);
   }
-  function selectDate(date: string) {
+  function selectDate(date: string, discardEventDraft = true) {
+    if (discardEventDraft) setEventDraft(null);
     setDetailsOpen(false);
     setSelectedDay(date);
     setWeek(cal.weekStart(date, state.settings.weekStartsOn));
     setMiniMonth(monthStart(date));
     setVisibleMonth(monthStart(date));
-    if (view === "month") setMonthScrollRequest((request) => request + 1);
+    if (view === "month" || view === "year")
+      setMonthScrollRequest((request) => request + 1);
     setSelectedTask(null);
   }
   function navigate(direction: number) {
     const date =
-      view === "month"
-        ? shiftMonth(visibleMonth, direction)
-        : cal.addDays(
-            view === "week" ? week : selectedDay,
-            direction * (view === "week" ? 7 : 1),
-          );
+      view === "year"
+        ? shiftMonth(visibleMonth, direction * 12)
+        : view === "month"
+          ? shiftMonth(visibleMonth, direction)
+          : cal.addDays(
+              view === "week" ? week : selectedDay,
+              direction * (view === "week" ? 7 : 1),
+            );
     selectDate(date);
   }
   function openSlot(slot: Slot, anchor: HTMLElement) {
@@ -295,6 +316,48 @@ export function App() {
     selectDate(slot.date);
     setSelectedTask(slot.chosen?.id || slot.tasks[0].id);
     setDetailsOpen(true);
+  }
+  function openEvent(
+    date = selectedDay,
+    start?: number,
+    trigger?: HTMLElement,
+    allDay = false,
+  ) {
+    setDetailsOpen(false);
+    setModal(null);
+    const eventDate = date < today ? today : date;
+    const eventStart = Math.max(
+      0,
+      Math.min(
+        1435,
+        start ??
+          (eventDate === today ? Math.ceil(currentMinute / 30) * 30 : 540),
+      ),
+    );
+    selectDate(eventDate);
+    if (view === "year") setView("day");
+    eventTrigger.current = trigger ?? null;
+    setEventAnchor(null);
+    setEventDraft({
+      id: cal.id(),
+      title: "",
+      date: eventDate,
+      start: eventStart,
+      minutes: Math.min(30, 1440 - eventStart),
+      allDay,
+      reservationAllDay: allDay,
+    });
+  }
+  function closeEvent(restoreFocus = false) {
+    setEventDraft(null);
+    if (restoreFocus) eventTrigger.current?.focus({ preventScroll: true });
+  }
+  function updateEventDraft(changes: Partial<TaskEdit>) {
+    if (changes.date && changes.date !== eventDraft?.date)
+      selectDate(changes.date, false);
+    setEventDraft((previous) =>
+      previous ? { ...previous, ...changes } : null,
+    );
   }
   async function readImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -339,10 +402,12 @@ export function App() {
           />
           <button
             className="rail-plan-button primary"
-            onClick={() => setModal("planner")}
+            onClick={(event) =>
+              openEvent(selectedDay, undefined, event.currentTarget)
+            }
           >
             <Plus size={15} />
-            {t("Plan a goal")}
+            {t("Create event")}
           </button>
           <div className="goal-group">
             <h2>{t("Active goals")}</h2>
@@ -434,6 +499,15 @@ export function App() {
             <div className="mobile-tools">
               <IconButton
                 className="icon-button"
+                aria-label={t("Create event")}
+                onClick={(event) =>
+                  openEvent(selectedDay, undefined, event.currentTarget)
+                }
+              >
+                <Plus size={18} />
+              </IconButton>
+              <IconButton
+                className="icon-button"
                 aria-label={t("Your goals")}
                 onClick={() => setModal("goals")}
               >
@@ -450,29 +524,31 @@ export function App() {
             <div className="calendar-title">
               <h1>
                 {cal.dateLabel(
-                  view === "month" ? visibleMonth : selectedDay,
-                  {
-                    month: "long",
-                    year: "numeric",
-                  },
+                  view === "month" || view === "year"
+                    ? visibleMonth
+                    : selectedDay,
+                  view === "year"
+                    ? { year: "numeric" }
+                    : {
+                        month: "long",
+                        year: "numeric",
+                      },
                   state.settings.language,
                 )}
               </h1>
-              <span>
-                {view === "week"
-                  ? state.settings.showWeekNumbers
-                    ? t("Week {v0}", {
-                        v0: weekNumber(week, state.settings.weekStartsOn),
-                      })
-                    : t("Week view")
-                  : view === "day"
+              {view !== "week" && (
+                <span>
+                  {view === "day"
                     ? cal.dateLabel(
                         selectedDay,
                         { weekday: "long" },
                         state.settings.language,
                       )
-                    : t("Month view")}
-              </span>
+                    : view === "year"
+                      ? t("Year view")
+                      : t("Month view")}
+                </span>
+              )}
             </div>
             <div className="calendar-controls">
               <div className="week-navigation">
@@ -495,15 +571,20 @@ export function App() {
                 {t("Today")}
               </button>
               <nav className="view-tabs" aria-label={t("Calendar view")}>
-                {(["day", "week", "month"] as const).map((mode) => (
+                {(["day", "week", "month", "year"] as const).map((mode) => (
                   <button
                     key={mode}
                     className={view === mode ? "selected" : ""}
                     aria-pressed={view === mode}
                     onClick={() => {
                       setDetailsOpen(false);
-                      if (mode === "month" && view !== "month")
-                        setVisibleMonth(monthStart(selectedDay));
+                      setEventDraft(null);
+                      if (mode === "month" && view !== "month") {
+                        if (view === "year") selectDate(visibleMonth);
+                        else setVisibleMonth(monthStart(selectedDay));
+                      }
+                      if (mode === "year" && view === "month")
+                        selectDate(visibleMonth);
                       setView(mode);
                     }}
                   >
@@ -511,7 +592,9 @@ export function App() {
                       ? t("Day")
                       : mode === "week"
                         ? t("Week")
-                        : t("Month")}
+                        : mode === "month"
+                          ? t("Month")
+                          : t("Year")}
                   </button>
                 ))}
               </nav>
@@ -579,7 +662,9 @@ export function App() {
                   ? t("Week calendar")
                   : view === "month"
                     ? t("Month calendar")
-                    : t("Day calendar")
+                    : view === "year"
+                      ? t("Year calendar")
+                      : t("Day calendar")
               }
             >
               {view === "week" ? (
@@ -593,6 +678,9 @@ export function App() {
                   currentMinute={currentMinute}
                   onDate={selectDate}
                   onSlot={openSlot}
+                  onCreate={openEvent}
+                  draft={eventDraft}
+                  onDraftAnchor={setEventAnchor}
                   scrollRef={timelineScroll}
                   gridRef={timeGrid}
                 />
@@ -608,8 +696,29 @@ export function App() {
                     setView("day");
                   }}
                   onSlot={openSlot}
+                  onCreate={openEvent}
+                  draft={eventDraft}
+                  onDraftAnchor={setEventAnchor}
                   onVisibleMonth={showVisibleMonth}
                   scrollRequest={monthScrollRequest}
+                />
+              ) : view === "year" ? (
+                <YearCalendar
+                  year={selectedDay.slice(0, 4)}
+                  selectedDay={selectedDay}
+                  scrollRequest={monthScrollRequest}
+                  onVisibleYear={showVisibleYear}
+                  state={state}
+                  today={today}
+                  holidays={holidays}
+                  onMonth={(month) => {
+                    selectDate(month);
+                    setView("month");
+                  }}
+                  onSelect={(date) => {
+                    selectDate(date);
+                    setView("day");
+                  }}
                 />
               ) : (
                 <div className="day-view" key="day">
@@ -652,11 +761,6 @@ export function App() {
                             state.settings.language,
                           )}
                         </span>
-                        {holidays(date).length > 0 && (
-                          <small className="header-holiday">
-                            {holidays(date).map(holidayLabel).join(" · ")}
-                          </small>
-                        )}
                       </button>
                     ))}
                   </nav>
@@ -672,6 +776,9 @@ export function App() {
                         currentMinute={currentMinute}
                         onDate={selectDate}
                         onSlot={openSlot}
+                        onCreate={openEvent}
+                        draft={eventDraft}
+                        onDraftAnchor={setEventAnchor}
                         scrollRef={timelineScroll}
                         gridRef={timeGrid}
                       />
@@ -685,14 +792,6 @@ export function App() {
                       <header className="day-task-heading">
                         <h2>{t("Tasks")}</h2>
                         <p>{titleDate(selectedDay, state.settings.language)}</p>
-                        {holidays(selectedDay).map((holiday) => (
-                          <p
-                            className="day-holiday"
-                            key={`${holiday.name}/${holiday.startMinute}`}
-                          >
-                            {holidayLabel(holiday)}
-                          </p>
-                        ))}
                         <span>
                           {plannedMinutes} {t("min planned")}
                         </span>
@@ -709,7 +808,7 @@ export function App() {
                                 <button
                                   className={[
                                     "agenda-card",
-                                    cal.goalFor(state, task)!.color,
+                                    cal.goalFor(state, task)?.color ?? "indigo",
                                     selected ? "selected" : "",
                                     slot.done ? "done" : "",
                                   ]
@@ -720,7 +819,9 @@ export function App() {
                                   }
                                 >
                                   <span className="agenda-time">
-                                    {cal.timeLabel(slot.start)}
+                                    {task.allDay
+                                      ? t("All day")
+                                      : cal.timeLabel(slot.start)}
                                   </span>
                                   <div>
                                     <h3>
@@ -729,8 +830,16 @@ export function App() {
                                         : task.title}
                                     </h3>
                                     <p>
-                                      {cal.goalFor(state, task)!.name} {t("·")}{" "}
-                                      {slot.duration} {t("min")}
+                                      {cal.goalFor(state, task)?.name ??
+                                        t("Event")}{" "}
+                                      {t("·")}{" "}
+                                      {task.allDay ? (
+                                        t("All day")
+                                      ) : (
+                                        <>
+                                          {slot.duration} {t("min")}
+                                        </>
+                                      )}
                                       {slot.tasks.length > 1 && !slot.chosen
                                         ? t(" reserved")
                                         : ""}
@@ -756,6 +865,7 @@ export function App() {
                         </ul>
                       ) : (
                         <Empty
+                          onCreate={() => openEvent()}
                           onPlan={() => setModal("planner")}
                           hasGoals={active.length > 0}
                         />
@@ -809,12 +919,24 @@ export function App() {
               const next = cal.editTask(state, cardTask.id, edit, today);
               setState(next);
               setError("");
-              setNotice(t("Task updated."));
+              setNotice(
+                cardTask.goalId === null
+                  ? t("Event updated.")
+                  : t("Task updated."),
+              );
               selectDate(edit.date);
               setSelectedTask(cardTask.id);
               setDetailsOpen(true);
             }}
             onComplete={() => complete(cardTask)}
+            onRemove={() => {
+              change(
+                (previous) => cal.removeEvent(previous, cardTask.id),
+                t("Event removed."),
+              );
+              setDetailsOpen(false);
+              setSelectedTask(null);
+            }}
             onTask={(task) => {
               selectDate(task.date);
               setSelectedTask(task.id);
@@ -825,6 +947,26 @@ export function App() {
                 cal.selectChoice(previous, task.date, task.slotId, task.id),
               );
               setSelectedTask(task.id);
+            }}
+          />
+        )}
+        {eventDraft && (
+          <EventCreator
+            key={eventDraft.id}
+            draft={eventDraft}
+            anchor={eventAnchor}
+            trigger={eventTrigger.current}
+            today={today}
+            timezone={state.settings.timezone}
+            onClose={closeEvent}
+            onDraftChange={updateEventDraft}
+            onSave={(event) => {
+              const next = cal.createEvent(state, event, today);
+              setState(next);
+              setError("");
+              setNotice(t("Event created."));
+              closeEvent(true);
+              selectDate(event.date);
             }}
           />
         )}
@@ -1003,6 +1145,13 @@ export function App() {
                 {t("goals and")} {pendingImport.tasks.length}{" "}
                 {t("tasks. It will replace the calendar in this browser.")}
               </p>
+              {!!pendingImport.eventSeries?.length && (
+                <p>
+                  {t("Includes {count} repeating event series.", {
+                    count: pendingImport.eventSeries.length,
+                  })}
+                </p>
+              )}
               <p className="muted">
                 {t("You can undo the import immediately afterward.")}
               </p>
@@ -1073,9 +1222,11 @@ export function App() {
 }
 
 function Empty({
+  onCreate,
   onPlan,
   hasGoals,
 }: {
+  onCreate: () => void;
   onPlan: () => void;
   hasGoals: boolean;
 }) {
@@ -1084,19 +1235,20 @@ function Empty({
   return (
     <div className="empty-state">
       <Sparkle size={32} />
-      <h2>
-        {hasGoals
-          ? t("Nothing scheduled for this day.")
-          : t("What would you like to make progress on?")}
-      </h2>
+      <h2>{t("Nothing scheduled for this day.")}</h2>
       <p className="muted">
         {hasGoals
           ? t("Your next steps will appear here when they’re scheduled.")
-          : t("Start with one goal. Turn it into small, doable steps.")}
+          : t("Create an event, or ask Appa to help plan a goal.")}
       </p>
-      <button className="primary" onClick={onPlan}>
-        {t("Plan a goal")}
-      </button>
+      <div className="empty-actions">
+        <button className="primary" onClick={onCreate}>
+          {t("Create event")}
+        </button>
+        <button className="secondary" onClick={onPlan}>
+          {t("Plan a goal")}
+        </button>
+      </div>
     </div>
   );
 }

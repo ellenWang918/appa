@@ -21,12 +21,12 @@ The first release is unsigned and has no automatic updater. Windows may show an 
 ## Start with one goal
 
 1. Open Appa. A new installation starts with an empty calendar and your computer's timezone.
-2. Available hours start at 18:00–21:00. You can change them anytime in **Settings → Goal settings**. Scheduling uses these hours without a separate daily budget.
+2. In **Settings → Goal settings**, use **Set available time** to limit scheduling to certain hours, initially 18:00–21:00. Turn it off to allow any time of day. Existing tasks stay in place, and your saved hours are remembered. There is no separate daily budget.
 3. Describe your intention in the bottom input and submit it, or choose **Plan a goal**. Sign in once in **Settings → User**, then select **Create an AI plan** in the planner, or choose **Write a plan myself** without signing in.
 4. Review and edit the proposed steps. Choose **Add to active goals** or **Save in Later**, then approve.
 5. Use **Today** to return to the current date, then select a task for its details. When a slot offers alternatives, choose one. Mark work complete only when you finish it.
 
-Open a saved goal in **Later** and choose **Make this goal active** whenever you are ready. More than two goals can be active; scheduling fits within your available hours.
+Open a saved goal in **Later** and choose **Make this goal active** whenever you are ready. More than two goals can be active; scheduling follows your goal settings.
 
 Open an active goal and choose **Edit goal** to change its name, pending steps, durations, prerequisites or recurrence. Completed work stays read-only. Saved edits support Undo in the current session.
 
@@ -42,8 +42,10 @@ Live account consent and real inference require an eligible user's authorization
 
 ## Calendar behavior
 
-- Day, Week and Month views use the same local calendar. Navigate dates with the left month picker or the header arrows; **Today** returns to the current date.
+- Day, Week, Month and Year views use the same local calendar. Navigate dates with the left month picker or the header arrows; **Today** returns to the current date.
 - Scroll Month view up or down to browse earlier and later months. The heading and mini calendar follow the visible month; **Today** jumps back to this month.
+- Scroll Year view in either direction to browse earlier and later years. Each year shows all twelve months, and the heading follows the visible year. Select a month heading to open Month or a date to open Day.
+- Use **Create event** or select empty calendar space to add an event without a goal. Events can be timed or all day and can repeat daily, weekly, fortnightly, monthly or yearly. Public holidays appear in the All day row. Event changes support Undo, and fixed events reserve space when goals are scheduled.
 - Week always shows Monday through Sunday, with a full-day timeline from 00:00 to 24:00.
 - Day and Week open at the current time. **Today** returns the timeline there after you scroll; it stays under your control as the clock advances.
 - Day places an hourly timeline on the left and its task list on the right, with independent scrolling. On narrow screens, the task list sits below the timeline.

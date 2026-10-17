@@ -1,6 +1,21 @@
 export type GoalColor = "indigo" | "teal" | "amber" | "rose";
 export type TaskStatus = "pending" | "done" | "skipped" | "consolidated";
+export type EventRepeat =
+  "daily" | "weekly" | "fortnightly" | "monthly" | "yearly";
+export type EventRepeatChoice = EventRepeat | "none";
+export interface EventSeries {
+  id: string;
+  repeat: EventRepeat;
+  anchor: string;
+  until?: string;
+  title: string;
+  start: number;
+  minutes: number;
+  allDay?: boolean;
+  excludedDates: string[];
+}
 export interface Settings {
+  useAvailableTime: boolean;
   start: number;
   end: number;
   timezone: string;
@@ -51,7 +66,8 @@ export interface Goal {
 }
 export interface Task {
   id: string;
-  goalId: string;
+  // null identifies a standalone event with a fixed date and time.
+  goalId: string | null;
   title: string;
   minutes: number;
   date: string;
@@ -61,6 +77,9 @@ export interface Task {
   status: TaskStatus;
   activityId?: string;
   occurrenceKey?: string;
+  allDay?: boolean;
+  eventSeriesId?: string;
+  eventOccurrenceDate?: string;
 }
 export interface Slot {
   id: string;
@@ -76,6 +95,12 @@ export interface TaskEdit {
   date: string;
   start: number;
   minutes: number;
+  allDay?: boolean;
+  repeat?: EventRepeatChoice;
+}
+export interface EventDraft extends TaskEdit {
+  id: string;
+  reservationAllDay: boolean;
 }
 export interface GoalEdit {
   name: string;
@@ -107,6 +132,7 @@ export interface CalendarState {
   settings: Settings;
   goals: Goal[];
   tasks: Task[];
+  eventSeries?: EventSeries[];
   choices: Record<string, string>;
 }
 export interface ScheduleOptions {

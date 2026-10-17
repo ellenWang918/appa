@@ -1,5 +1,7 @@
 import type {
   CalendarState,
+  EventRepeat,
+  EventSeries,
   GoalColor,
   GoalEdit,
   Plan,
@@ -15,8 +17,21 @@ import {
   INTERFACE_LANGUAGES,
   isHolidayCalendar,
 } from "./calendarPreferences.js";
+import {
+  eventForSeriesDate,
+  eventOccurrenceDates,
+  isEventOccurrence,
+  isEventRepeat,
+  seriesCanShareDate,
+  virtualEventForId,
+  virtualEventsForDate,
+} from "./eventRepeat.js";
 
 export const COLORS: GoalColor[] = ["indigo", "teal", "amber", "rose"];
+export const availableHours = (settings: Settings) =>
+  settings.useAvailableTime === false
+    ? { start: 0, end: 1440 }
+    : { start: settings.start, end: settings.end };
 export const id = () => globalThis.crypto.randomUUID();
 export const copy = <T>(value: T): T => structuredClone(value);
 export function localDate(timeZone = "Australia/Brisbane", now = new Date()) {
@@ -63,6 +78,8 @@ export const dateLabel = (
   new Intl.DateTimeFormat(language, { timeZone: "UTC", ...options }).format(
     new Date(date + "T12:00:00Z"),
   );
+export const clockTime = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 export function timeLabel(minute: number) {
   const hour = Math.floor(minute / 60);
   return `${hour % 12 || 12}:${String(minute % 60).padStart(2, "0")} ${hour < 12 ? "am" : "pm"}`;
@@ -78,6 +95,7 @@ export function seed(today = localDate()): CalendarState {
     recovery: null,
     settings: {
       ...DEFAULT_CALENDAR_PREFERENCES,
+      useAvailableTime: true,
       start: 1080,
       end: 1260,
       timezone: "Australia/Brisbane",
@@ -186,14 +204,16 @@ export function slotsFor(
   state: CalendarState,
   date: string,
   ignoreId: string | null = null,
+  allDay = false,
 ): Slot[] {
   const groups = new Map<string, Task[]>();
-  for (const task of state.tasks) {
+  for (const task of [...state.tasks, ...virtualEventsForDate(state, date)]) {
     if (
       task.id === ignoreId ||
       task.date !== date ||
+      !!task.allDay !== allDay ||
       !["pending", "done"].includes(task.status) ||
-      goalFor(state, task)?.status !== "active"
+      (task.goalId !== null && goalFor(state, task)?.status !== "active")
     )
       continue;
     if (!groups.has(task.slotId)) groups.set(task.slotId, []);
@@ -218,6 +238,8 @@ export function slotsFor(
     })
     .sort((a, b) => a.start - b.start);
 }
+export const allDaySlotsFor = (state: CalendarState, date: string) =>
+  slotsFor(state, date, null, true);
 export const plannedMinutesFor = (state: CalendarState, date: string) =>
   slotsFor(state, date).reduce((sum, slot) => sum + slot.duration, 0);
 function fits(
@@ -228,9 +250,10 @@ function fits(
   ignoreId: string,
 ) {
   const slots = slotsFor(state, date, ignoreId);
+  const hours = availableHours(state.settings);
   return (
-    start >= state.settings.start &&
-    start + minutes <= state.settings.end &&
+    start >= hours.start &&
+    start + minutes <= hours.end &&
     slots.every(
       (s) => start + minutes <= s.start || start >= s.start + s.duration,
     )
@@ -242,11 +265,19 @@ function place(
   date: string,
   {
     conflict = false,
-    earliest = state.settings.start,
+    earliest = availableHours(state.settings).start,
   }: { conflict?: boolean; earliest?: number } = {},
 ) {
   const duration = task.minutes;
-  if (duration > state.settings.end - state.settings.start)
+  const hours = availableHours(state.settings);
+  const now =
+    state.settings.useAvailableTime === false
+      ? {
+          date: localDate(state.settings.timezone),
+          minute: Math.ceil(localMinute(state.settings.timezone) / 5) * 5,
+        }
+      : null;
+  if (duration > hours.end - hours.start)
     throw new Error(
       `“${task.title}” is longer than your available hours. Edit its duration first.`,
     );
@@ -254,8 +285,12 @@ function place(
     const target = addDays(date, day),
       first =
         day === 0
-          ? Math.max(earliest, state.settings.start)
-          : state.settings.start;
+          ? Math.max(
+              earliest,
+              hours.start,
+              now?.date === target ? now.minute : 0,
+            )
+          : Math.max(hours.start, now?.date === target ? now.minute : 0);
     const existing = slotsFor(state, target, task.id);
     if (conflict && task.activityId) {
       const related = existing.find(
@@ -271,7 +306,7 @@ function place(
           ...related.tasks.map((t) => t.minutes),
         );
         if (
-          related.start + longest <= state.settings.end &&
+          related.start + longest <= hours.end &&
           existing.every(
             (s) =>
               s.id === related.id ||
@@ -289,11 +324,7 @@ function place(
         }
       }
     }
-    for (
-      let start = first;
-      start + duration <= state.settings.end;
-      start += 5
-    ) {
+    for (let start = first; start + duration <= hours.end; start += 5) {
       if (fits(state, target, start, duration, task.id)) {
         Object.assign(task, { date: target, start, slotId: id() });
         return;
@@ -313,7 +344,7 @@ function place(
           const start = group[0].start,
             keys = new Set(group.map((s) => s.id));
           if (
-            start + longest > state.settings.end ||
+            start + longest > hours.end ||
             existing.some(
               (s) =>
                 !keys.has(s.id) &&
@@ -360,6 +391,18 @@ function snapshot(state: CalendarState) {
   result.undo = null;
   return result;
 }
+export function taskFor(state: CalendarState, taskId: string) {
+  return (
+    state.tasks.find((task) => task.id === taskId) ??
+    virtualEventForId(state, taskId)
+  );
+}
+function materializeTask(state: CalendarState, taskId: string) {
+  const task = taskFor(state, taskId);
+  if (task && !state.tasks.some((item) => item.id === taskId))
+    state.tasks.push(task);
+  return task;
+}
 function commit(before: CalendarState, after: CalendarState, label: string) {
   if (label !== "Recovery") after.recovery = null;
   after.revision = before.revision + 1;
@@ -373,13 +416,34 @@ export function editTask(
   today = localDate(state.settings.timezone),
 ) {
   const next = copy(state);
-  const task = next.tasks.find((item) => item.id === taskId);
+  const task = materializeTask(next, taskId);
   if (
     !task ||
     task.status !== "pending" ||
-    goalFor(next, task)?.status !== "active"
+    (task.goalId !== null && goalFor(next, task)?.status !== "active")
   )
     throw new Error("Only pending tasks in active goals can be edited.");
+  if (task.goalId === null) {
+    const series = next.eventSeries?.find(
+      (item) => item.id === task.eventSeriesId,
+    );
+    const repeat = edit.repeat ?? series?.repeat ?? "none";
+    if (repeat !== (series?.repeat ?? "none")) {
+      if (series)
+        stopSeriesFrom(next, series, task.eventOccurrenceDate!, task.id);
+    }
+    validateEvent(next, edit, today, task.id);
+    if (repeat !== (series?.repeat ?? "none") && repeat !== "none")
+      attachEventSeries(next, task, edit, repeat);
+    Object.assign(task, eventDetails(edit));
+    if (!edit.allDay) delete task.allDay;
+    validateRepeatConflicts(next, today);
+    return commit(state, next, "Event updated");
+  }
+  if (edit.repeat && edit.repeat !== "none")
+    throw new Error("Repeat is available for standalone events only.");
+  if (edit.allDay)
+    throw new Error("All day is available for standalone events only.");
   if (
     typeof edit.title !== "string" ||
     !edit.title.trim() ||
@@ -392,8 +456,8 @@ export function editTask(
     throw new Error("Choose a duration of 5–60 minutes.");
   if (
     !Number.isInteger(edit.start) ||
-    edit.start < next.settings.start ||
-    edit.start + edit.minutes > next.settings.end
+    edit.start < availableHours(next.settings).start ||
+    edit.start + edit.minutes > availableHours(next.settings).end
   )
     throw new Error("Choose a time within your available hours.");
   const moved = task.date !== edit.date || task.start !== edit.start;
@@ -434,8 +498,10 @@ export function editTask(
     if (
       slots.some(
         (slot, index) =>
-          slot.start < next.settings.start ||
-          slot.start + slot.duration > next.settings.end ||
+          (slot.tasks[0].goalId !== null &&
+            (slot.start < availableHours(next.settings).start ||
+              slot.start + slot.duration >
+                availableHours(next.settings).end)) ||
           (index > 0 &&
             slot.start < slots[index - 1].start + slots[index - 1].duration),
       )
@@ -445,6 +511,248 @@ export function editTask(
       );
   }
   return commit(state, next, "Task updated");
+}
+
+function validateEvent(
+  state: CalendarState,
+  event: TaskEdit,
+  today: string,
+  ignoreId: string | null = null,
+) {
+  if (
+    typeof event.title !== "string" ||
+    !event.title.trim() ||
+    event.title.trim().length > 180
+  )
+    throw new Error("Enter an event name of 1–180 characters.");
+  if (!validDate(event.date) || event.date < today)
+    throw new Error("Choose today or a future date.");
+  if (event.allDay !== undefined && typeof event.allDay !== "boolean")
+    throw new Error("Choose whether this event is all day.");
+  if (
+    event.repeat !== undefined &&
+    event.repeat !== "none" &&
+    !isEventRepeat(event.repeat)
+  )
+    throw new Error("Choose a valid repeat interval.");
+  if (event.allDay) return;
+  if (
+    !Number.isInteger(event.start) ||
+    event.start < 0 ||
+    event.start >= 1440 ||
+    !Number.isInteger(event.minutes) ||
+    event.minutes < 5 ||
+    event.start + event.minutes > 1440
+  )
+    throw new Error(
+      "Choose an end time at least 5 minutes after the start, within the same day.",
+    );
+  if (
+    slotsFor(state, event.date, ignoreId).some(
+      (slot) =>
+        event.start < slot.start + slot.duration &&
+        event.start + event.minutes > slot.start,
+    )
+  )
+    throw new Error(
+      "This time overlaps another event or planned task. Choose a free time.",
+    );
+}
+
+function eventDetails(event: TaskEdit): TaskEdit {
+  return {
+    title: event.title.trim(),
+    date: event.date,
+    start: event.allDay ? 0 : event.start,
+    minutes: event.allDay ? 1440 : event.minutes,
+    ...(event.allDay ? { allDay: true } : {}),
+  };
+}
+
+function attachEventSeries(
+  state: CalendarState,
+  task: Task,
+  edit: TaskEdit,
+  repeat: EventRepeat,
+) {
+  const details = eventDetails(edit);
+  const series: EventSeries = {
+    id: id(),
+    repeat,
+    anchor: edit.date,
+    title: details.title,
+    start: details.start,
+    minutes: details.minutes,
+    ...(details.allDay ? { allDay: true } : {}),
+    excludedDates: [],
+  };
+  (state.eventSeries ??= []).push(series);
+  task.eventSeriesId = series.id;
+  task.eventOccurrenceDate = edit.date;
+}
+
+function stopSeriesFrom(
+  state: CalendarState,
+  series: EventSeries,
+  date: string,
+  keepId: string,
+) {
+  if (date <= series.anchor) {
+    state.eventSeries = state.eventSeries?.filter(
+      (item) => item.id !== series.id,
+    );
+  } else {
+    series.until = addDays(date, -1);
+    series.excludedDates = series.excludedDates.filter(
+      (value) => value <= series.until!,
+    );
+  }
+  state.tasks = state.tasks.filter((task) => {
+    if (task.eventSeriesId !== series.id || task.eventOccurrenceDate! < date)
+      return true;
+    if (task.id === keepId || task.status === "done") {
+      delete task.eventSeriesId;
+      delete task.eventOccurrenceDate;
+      return true;
+    }
+    delete state.choices[`${task.date}/${task.slotId}`];
+    return false;
+  });
+}
+
+const overlaps = (
+  a: Pick<Task, "start" | "minutes">,
+  b: Pick<Task, "start" | "minutes">,
+) => a.start < b.start + b.minutes && a.start + a.minutes > b.start;
+
+function validateRepeatConflicts(state: CalendarState, today: string) {
+  validateSchedule(state, today);
+  const series = state.eventSeries ?? [];
+  const rank = { daily: 0, weekly: 1, fortnightly: 2, monthly: 3, yearly: 4 };
+  for (let i = 0; i < series.length; i++) {
+    for (let j = i + 1; j < series.length; j++) {
+      const a = series[i],
+        b = series[j];
+      if (a.allDay || b.allDay || !overlaps(a, b) || !seriesCanShareDate(a, b))
+        continue;
+      const from = [today, a.anchor, b.anchor].sort().at(-1)!;
+      // Gregorian months repeat after 400 years; 800 also preserves fortnight parity.
+      const cycleEnd = `${Math.min(9999, Number(from.slice(0, 4)) + 800)}-12-31`;
+      const through = [
+        cycleEnd,
+        a.until ?? cycleEnd,
+        b.until ?? cycleEnd,
+      ].sort()[0];
+      if (through < from) continue;
+      const rarer = rank[a.repeat] > rank[b.repeat] ? a : b;
+      for (const date of eventOccurrenceDates(rarer, from, through)) {
+        const eventA = eventForSeriesDate(state, a, date);
+        const eventB = eventForSeriesDate(state, b, date);
+        if (
+          eventA &&
+          eventB &&
+          !eventA.allDay &&
+          !eventB.allDay &&
+          overlaps(eventA, eventB)
+        )
+          throw new Error(
+            "This repeat overlaps another event. Choose a different time or repeat interval.",
+          );
+      }
+    }
+  }
+}
+
+function validateEventSeries(input: unknown): EventSeries[] | undefined {
+  if (input === undefined) return;
+  if (!Array.isArray(input))
+    throw new Error("The backup contains invalid event repeats.");
+  const series = input.map((value: EventSeries) => {
+    if (
+      !value ||
+      typeof value.id !== "string" ||
+      !/^[A-Za-z0-9_-]+$/.test(value.id) ||
+      !isEventRepeat(value.repeat) ||
+      !validDate(value.anchor) ||
+      (value.until !== undefined &&
+        (!validDate(value.until) || value.until < value.anchor)) ||
+      typeof value.title !== "string" ||
+      !value.title.trim() ||
+      value.title.length > 180 ||
+      !Number.isInteger(value.start) ||
+      value.start < 0 ||
+      !Number.isInteger(value.minutes) ||
+      value.minutes < 5 ||
+      value.start + value.minutes > 1440 ||
+      (value.allDay !== undefined && typeof value.allDay !== "boolean") ||
+      (value.allDay && (value.start !== 0 || value.minutes !== 1440)) ||
+      !Array.isArray(value.excludedDates) ||
+      value.excludedDates.some(
+        (date) =>
+          !validDate(date) ||
+          !isEventOccurrence({ ...value, excludedDates: [] }, date),
+      )
+    )
+      throw new Error("The backup contains an invalid event repeat.");
+    return {
+      id: value.id,
+      repeat: value.repeat,
+      anchor: value.anchor,
+      title: value.title,
+      start: value.start,
+      minutes: value.minutes,
+      excludedDates: [...new Set(value.excludedDates)],
+      ...(value.until ? { until: value.until } : {}),
+      ...(value.allDay ? { allDay: true } : {}),
+    };
+  });
+  if (new Set(series.map((item) => item.id)).size !== series.length)
+    throw new Error("The backup has duplicate event repeats.");
+  return series;
+}
+
+export function createEvent(
+  state: CalendarState,
+  event: TaskEdit,
+  today = localDate(state.settings.timezone),
+) {
+  if (typeof event.title === "string" && !event.title.trim())
+    event = { ...event, title: "New event" };
+  validateEvent(state, event, today);
+  const next = copy(state);
+  const task: Task = {
+    ...eventDetails(event),
+    id: id(),
+    goalId: null,
+    slotId: id(),
+    dependsOn: [],
+    status: "pending",
+  };
+  next.tasks.push(task);
+  if (event.repeat && event.repeat !== "none") {
+    attachEventSeries(next, task, event, event.repeat);
+    validateRepeatConflicts(next, today);
+  }
+  return commit(state, next, "Event created");
+}
+
+export function removeEvent(state: CalendarState, eventId: string) {
+  const event = taskFor(state, eventId);
+  if (!event || event.goalId !== null)
+    throw new Error("This event is no longer available.");
+  const next = copy(state);
+  next.tasks = next.tasks.filter((task) => task.id !== eventId);
+  const series = next.eventSeries?.find(
+    (item) => item.id === event.eventSeriesId,
+  );
+  if (
+    series &&
+    event.eventOccurrenceDate &&
+    !series.excludedDates.includes(event.eventOccurrenceDate)
+  )
+    series.excludedDates.push(event.eventOccurrenceDate);
+  delete next.choices[`${event.date}/${event.slotId}`];
+  return commit(state, next, "Event removed");
 }
 export function selectChoice(
   state: CalendarState,
@@ -460,7 +768,7 @@ export function selectChoice(
   next.choices[`${date}/${slotId}`] = taskId;
   const updated = slotsFor(next, date).find((s) => s.id === slotId)!;
   if (
-    updated.start + updated.duration > next.settings.end ||
+    updated.start + updated.duration > availableHours(next.settings).end ||
     slotsFor(next, date).some(
       (s) =>
         s.id !== slotId &&
@@ -479,7 +787,7 @@ export function completeTask(
   today = localDate(state.settings.timezone),
 ) {
   const next = copy(state),
-    task = next.tasks.find((t) => t.id === taskId);
+    task = materializeTask(next, taskId);
   if (
     !task ||
     task.status !== "pending" ||
@@ -487,7 +795,9 @@ export function completeTask(
     isBlocked(next, task)
   )
     throw new Error("This task is not actionable today.");
-  const slot = slotsFor(next, task.date).find((s) => s.id === task.slotId);
+  const slot = (
+    task.allDay ? allDaySlotsFor(next, task.date) : slotsFor(next, task.date)
+  ).find((s) => s.id === task.slotId);
   if (
     !slot ||
     slot.done ||
@@ -504,7 +814,7 @@ export function completeTask(
 export function catchUp(
   state: CalendarState,
   today = localDate(state.settings.timezone),
-  minute = state.settings.start,
+  minute = availableHours(state.settings).start,
   force = false,
 ) {
   if (!force && state.lastRecoveryDay === today) return state;
@@ -528,7 +838,8 @@ export function catchUp(
       consolidated++;
     } else recurring.set(task.activityId, task.id);
   }
-  const target = minute >= next.settings.end ? addDays(today, 1) : today;
+  const hours = availableHours(next.settings);
+  const target = minute >= hours.end ? addDays(today, 1) : today;
   for (const task of overdue
     .filter((t) => t.status === "pending")
     .sort((a, b) => a.date.localeCompare(b.date)))
@@ -536,8 +847,8 @@ export function catchUp(
       conflict: true,
       earliest:
         target === today
-          ? Math.max(next.settings.start, Math.ceil(minute / 5) * 5)
-          : next.settings.start,
+          ? Math.max(hours.start, Math.ceil(minute / 5) * 5)
+          : hours.start,
     });
   moveDependents(next);
   const moved = next.tasks.filter(
@@ -673,7 +984,7 @@ export function approvePlan(
         title: source.title,
         minutes: source.minutes,
         date: today,
-        start: next.settings.start,
+        start: availableHours(next.settings).start,
         slotId: id(),
         dependsOn: source.dependsOn.map((d) => created[d].id),
         status: "pending",
@@ -821,7 +1132,7 @@ export function editGoal(
             goalId,
             status: "pending",
             date: today,
-            start: next.settings.start,
+            start: availableHours(next.settings).start,
             slotId: id(),
           };
       return { task, old };
@@ -941,7 +1252,7 @@ export function extendRecurrences(
           title: source.title,
           minutes: source.minutes,
           date,
-          start: next.settings.start,
+          start: availableHours(next.settings).start,
           slotId: id(),
           dependsOn: [],
           status: "pending",
@@ -962,9 +1273,11 @@ export function updateSettings(
   const next = copy(state);
   next.settings = validateSettings(settings);
   validateRecurringHours(next.goals, next.settings);
+  const hours = availableHours(next.settings);
+  const previousHours = availableHours(state.settings);
   if (
-    next.settings.start === state.settings.start &&
-    next.settings.end === state.settings.end &&
+    hours.start <= previousHours.start &&
+    hours.end >= previousHours.end &&
     next.settings.timezone === state.settings.timezone
   ) {
     validateSchedule(next, today);
@@ -975,10 +1288,12 @@ export function updateSettings(
       .filter((t) => t.status === "done" && t.date >= today)
       .map((t) => t.date),
   )) {
-    const finished = slotsFor(next, date).filter((s) => s.done);
+    const finished = slotsFor(next, date).filter(
+      (s) => s.done && s.tasks[0].goalId !== null,
+    );
     if (
       finished.some(
-        (s) => s.start < settings.start || s.start + s.duration > settings.end,
+        (s) => s.start < hours.start || s.start + s.duration > hours.end,
       )
     )
       throw new Error(
@@ -995,7 +1310,9 @@ export function updateSettings(
     .sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
   const originals = [...new Set(tasks.map((t) => t.date))].flatMap((date) =>
     slotsFor(state, date)
-      .filter((slot) => slot.tasks.some((t) => t.status === "pending"))
+      .filter((slot) =>
+        slot.tasks.some((t) => t.goalId !== null && t.status === "pending"),
+      )
       .map((slot) => ({
         ...slot,
         wasDone: slot.done,
@@ -1040,14 +1357,18 @@ export function updateSettings(
 }
 function validateSettings(input: unknown): Settings {
   const s = input as Settings | null | undefined;
-  if (
-    !s ||
-    !Number.isInteger(s.start) ||
-    !Number.isInteger(s.end) ||
-    s.start < 0 ||
-    s.end > 1440 ||
-    s.end - s.start < 5
-  )
+  if (!s) throw new Error("Choose valid goal settings.");
+  const useAvailableTime =
+    s.useAvailableTime === undefined ? true : s.useAvailableTime;
+  if (typeof useAvailableTime !== "boolean")
+    throw new Error("Choose whether to set available time.");
+  const validHours =
+    Number.isInteger(s.start) &&
+    Number.isInteger(s.end) &&
+    s.start >= 0 &&
+    s.end <= 1440 &&
+    s.end - s.start >= 5;
+  if (useAvailableTime && !validHours)
     throw new Error(
       "Available hours must span at least 5 minutes within one day.",
     );
@@ -1083,8 +1404,9 @@ function validateSettings(input: unknown): Settings {
   if (!isHolidayCalendar(holidayCalendar))
     throw new Error("Choose a supported public holiday calendar.");
   return {
-    start: s.start,
-    end: s.end,
+    useAvailableTime,
+    start: validHours ? s.start : 1080,
+    end: validHours ? s.end : 1260,
     timezone: s.timezone,
     language,
     showWeekNumbers,
@@ -1096,7 +1418,8 @@ function validateRecurringHours(
   goals: CalendarState["goals"],
   settings: Settings,
 ) {
-  const availableMinutes = settings.end - settings.start;
+  const hours = availableHours(settings);
+  const availableMinutes = hours.end - hours.start;
   for (const goal of goals)
     if (
       goal.status === "active" &&
@@ -1107,6 +1430,7 @@ function validateRecurringHours(
       );
 }
 function validateSchedule(state: CalendarState, today: string) {
+  const hours = availableHours(state.settings);
   for (const date of new Set(
     state.tasks.filter((t) => t.date >= today).map((t) => t.date),
   )) {
@@ -1114,8 +1438,8 @@ function validateSchedule(state: CalendarState, today: string) {
     if (
       slots.some(
         (s, i) =>
-          s.start < state.settings.start ||
-          s.start + s.duration > state.settings.end ||
+          (s.tasks[0].goalId !== null &&
+            (s.start < hours.start || s.start + s.duration > hours.end)) ||
           (i > 0 && s.start < slots[i - 1].start + slots[i - 1].duration),
       )
     )
@@ -1174,16 +1498,17 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
   if (new Set(goals.map((g) => g.id)).size !== goals.length)
     throw new Error("The backup has duplicate goals.");
   validateRecurringHours(goals, settings);
+  const eventSeries = validateEventSeries(raw.eventSeries);
   const tasks = raw.tasks.map((t) => {
     if (
       typeof t.id !== "string" ||
-      !goals.some((g) => g.id === t.goalId) ||
+      (t.goalId !== null && !goals.some((g) => g.id === t.goalId)) ||
       typeof t.title !== "string" ||
       !t.title.trim() ||
       t.title.length > 180 ||
       !Number.isInteger(t.minutes) ||
       t.minutes < 5 ||
-      t.minutes > 60 ||
+      t.minutes > (t.goalId === null ? 1440 : 60) ||
       !validDate(t.date) ||
       !Number.isInteger(t.start) ||
       t.start < 0 ||
@@ -1193,6 +1518,35 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
       !["pending", "done", "skipped", "consolidated"].includes(t.status)
     )
       throw new Error("The backup contains an invalid task.");
+    if (
+      (t.allDay !== undefined && typeof t.allDay !== "boolean") ||
+      (t.allDay && (t.goalId !== null || t.start !== 0 || t.minutes !== 1440))
+    )
+      throw new Error("The backup contains an invalid all-day event.");
+    if (t.eventSeriesId !== undefined || t.eventOccurrenceDate !== undefined) {
+      const series = eventSeries?.find((item) => item.id === t.eventSeriesId);
+      if (
+        t.goalId !== null ||
+        !series ||
+        !validDate(t.eventOccurrenceDate) ||
+        !isEventOccurrence(series, t.eventOccurrenceDate)
+      )
+        throw new Error("The backup contains an invalid event occurrence.");
+    }
+    if (
+      t.goalId === null &&
+      (t.dependsOn.length > 0 ||
+        t.activityId !== undefined ||
+        t.occurrenceKey !== undefined ||
+        !["pending", "done"].includes(t.status) ||
+        raw.tasks.some(
+          (other) =>
+            other.id !== t.id &&
+            other.date === t.date &&
+            other.slotId === t.slotId,
+        ))
+    )
+      throw new Error("The backup contains an invalid standalone event.");
     if (
       t.activityId &&
       (t.activityId !== t.goalId ||
@@ -1210,6 +1564,13 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
       slotId: t.slotId,
       dependsOn: [...t.dependsOn],
       status: t.status,
+      ...(t.allDay ? { allDay: true } : {}),
+      ...(t.eventSeriesId
+        ? {
+            eventSeriesId: t.eventSeriesId,
+            eventOccurrenceDate: t.eventOccurrenceDate,
+          }
+        : {}),
       ...(t.activityId
         ? { activityId: t.activityId, occurrenceKey: t.occurrenceKey }
         : {}),
@@ -1217,6 +1578,11 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
   });
   if (new Set(tasks.map((t) => t.id)).size !== tasks.length)
     throw new Error("The backup has duplicate tasks.");
+  const occurrences = tasks
+    .filter((task) => task.eventSeriesId)
+    .map((task) => `${task.eventSeriesId}/${task.eventOccurrenceDate}`);
+  if (new Set(occurrences).size !== occurrences.length)
+    throw new Error("The backup has duplicate event occurrences.");
   const visited = new Set(),
     visiting = new Set();
   function visit(t: Task) {
@@ -1241,6 +1607,7 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
     sample: !!raw.sample,
     goals,
     tasks,
+    ...(eventSeries ? { eventSeries } : {}),
     settings,
     choices: {},
     draft,
@@ -1251,7 +1618,7 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
   for (const [key, value] of Object.entries(raw.choices || {}))
     if (tasks.some((t) => `${t.date}/${t.slotId}` === key && t.id === value))
       next.choices[key] = value;
-  validateSchedule(next, today);
+  validateRepeatConflicts(next, today);
   return next;
 }
 function validDate(date: unknown): date is string {

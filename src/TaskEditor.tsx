@@ -1,25 +1,37 @@
 import { useState } from "react";
-import type { Task, TaskEdit } from "./types";
+import type { EventRepeatChoice, Task, TaskEdit } from "./types";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { CalendarBlank, Clock } from "@phosphor-icons/react";
 import { clockTime } from "./CalendarViews";
 import { errorMessage } from "./errors";
+import { AllDayToggle } from "./AllDayToggle";
+import { EventRepeatSelect } from "./EventRepeatSelect";
 
 export function TaskEditor({
   task,
   goalName,
+  repeat = "none",
   today,
   onClose,
   onSave,
 }: {
   task: Task;
   goalName: string;
+  repeat?: EventRepeatChoice;
   today: string;
   onClose: () => void;
   onSave: (edit: TaskEdit) => void;
 }) {
   const t = useInterfaceText();
   const [error, setError] = useState("");
+  const [allDay, setAllDay] = useState(!!task.allDay);
+  const [repeatChoice, setRepeatChoice] = useState(repeat);
+  const [startTime, setStartTime] = useState(
+    clockTime(task.allDay ? 540 : task.start),
+  );
+  const [endTime, setEndTime] = useState(
+    clockTime(task.allDay ? 570 : (task.start + task.minutes) % 1440),
+  );
   return (
     <form
       className="task-card-editor"
@@ -27,17 +39,20 @@ export function TaskEditor({
         event.preventDefault();
         try {
           const values = new FormData(event.currentTarget);
-          const toMinute = (value: FormDataEntryValue | null) => {
-            const [hour, minute] = String(value).split(":").map(Number);
+          const toMinute = (value: string) => {
+            const [hour, minute] = value.split(":").map(Number);
             return hour * 60 + minute;
           };
-          const start = toMinute(values.get("start"));
-          const end = toMinute(values.get("end"));
+          const start = toMinute(startTime);
+          const end = toMinute(endTime);
           onSave({
             title: String(values.get("title")),
             date: String(values.get("date")),
-            start,
-            minutes: (end === 0 && start > 0 ? 1440 : end) - start,
+            start: allDay ? 0 : start,
+            minutes: allDay
+              ? 1440
+              : (end === 0 && start > 0 ? 1440 : end) - start,
+            ...(task.goalId === null ? { allDay, repeat: repeatChoice } : {}),
           });
         } catch (caught) {
           setError(errorMessage(caught));
@@ -47,7 +62,9 @@ export function TaskEditor({
       <div className="task-card-main">
         <p className="task-card-goal">{goalName}</p>
         <label className="task-card-title-field">
-          <span className="sr-only">{t("Task name")}</span>
+          <span className="sr-only">
+            {task.goalId === null ? t("Event name") : t("Task name")}
+          </span>
           <input
             name="title"
             defaultValue={task.title}
@@ -56,6 +73,15 @@ export function TaskEditor({
             required
           />
         </label>
+        {task.goalId === null && (
+          <AllDayToggle
+            checked={allDay}
+            onChange={(value) => {
+              setError("");
+              setAllDay(value);
+            }}
+          />
+        )}
         <div className="task-card-edit-row">
           <CalendarBlank size={21} aria-hidden="true" />
           <label>
@@ -69,30 +95,52 @@ export function TaskEditor({
             />
           </label>
         </div>
-        <div className="task-card-edit-row">
-          <Clock size={21} aria-hidden="true" />
-          <div className="task-card-time-fields">
-            <label>
-              <span className="sr-only">{t("Start time")}</span>
-              <input
-                type="time"
-                name="start"
-                defaultValue={clockTime(task.start)}
-                required
-              />
-            </label>
-            <span aria-hidden="true">–</span>
-            <label>
-              <span className="sr-only">{t("End time")}</span>
-              <input
-                type="time"
-                name="end"
-                defaultValue={clockTime((task.start + task.minutes) % 1440)}
-                required
-              />
-            </label>
+        {!allDay && (
+          <div className="task-card-edit-row">
+            <Clock size={21} aria-hidden="true" />
+            <div className="task-card-time-fields">
+              <label>
+                <span className="sr-only">{t("Start time")}</span>
+                <input
+                  type="time"
+                  name="start"
+                  value={startTime}
+                  onChange={(event) => setStartTime(event.target.value)}
+                  required
+                />
+              </label>
+              <span aria-hidden="true">–</span>
+              <label>
+                <span className="sr-only">{t("End time")}</span>
+                <input
+                  type="time"
+                  name="end"
+                  value={endTime}
+                  onChange={(event) => setEndTime(event.target.value)}
+                  required
+                />
+              </label>
+            </div>
           </div>
-        </div>
+        )}
+        {task.goalId === null && (
+          <>
+            <EventRepeatSelect
+              value={repeatChoice}
+              onChange={(value) => {
+                setError("");
+                setRepeatChoice(value);
+              }}
+            />
+            {(task.eventSeriesId || repeatChoice !== "none") && (
+              <p className="small muted">
+                {t(
+                  "Changes apply to this event. Changing Repeat updates this and following events.",
+                )}
+              </p>
+            )}
+          </>
+        )}
         {task.activityId && (
           <p className="small muted">
             {t(

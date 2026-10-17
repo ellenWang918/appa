@@ -27,19 +27,13 @@ import { api } from "./api";
 import * as cal from "./calendar";
 import { desktop, localPlace } from "./environment";
 import { CalendarSettings } from "./CalendarSettings";
+import { GoalSettings } from "./GoalSettings";
 import { GoalEditor } from "./GoalEditor";
 import {
   ChatgptSignIn,
   UserSettings,
   useChatgptConnection,
 } from "./ChatgptAccount";
-const minuteInput = (value: number) =>
-  `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
-const parseMinute = (value: string) => {
-  const [h, m] = value.split(":").map(Number);
-  return h * 60 + m;
-};
-
 interface PlannerProps {
   state: CalendarState;
   onClose: () => void;
@@ -300,7 +294,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
             )}
             <p className="small muted">
               {t(
-                "Aim for 5–25 minutes per step. Larger steps can use up to 60 minutes if they fit your available hours.",
+                "Aim for 5–25 minutes per step. Larger steps can use up to 60 minutes.",
               )}
             </p>
             <div className="editable-tasks">
@@ -420,7 +414,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                 {placement === "later"
                   ? t("Keep the steps saved without scheduling them yet.")
                   : t(
-                      "Schedule alongside your other active goals, within your available hours.",
+                      "Schedule alongside your other active goals, following your goal settings.",
                     )}
               </p>
             </div>
@@ -521,9 +515,10 @@ export function Settings({
               onSave(settings);
             } catch (caught) {
               if (
-                !Number.isFinite(settings.start) ||
-                !Number.isFinite(settings.end) ||
-                settings.start >= settings.end
+                settings.useAvailableTime &&
+                (!Number.isFinite(settings.start) ||
+                  !Number.isFinite(settings.end) ||
+                  settings.start >= settings.end)
               )
                 setSection("goals");
               setError(errorMessage(caught));
@@ -544,47 +539,7 @@ export function Settings({
               <CalendarSettings settings={settings} onChange={setSettings} />
             )}
             {section === "goals" && (
-              <fieldset className="settings-section">
-                <legend>{t("Goal settings")}</legend>
-                <p className="small muted">
-                  {t("Choose when Appa can schedule your goals.")}
-                </p>
-                <div className="two-fields">
-                  <label className="field">
-                    {t("Available from")}
-                    <input
-                      type="time"
-                      value={minuteInput(settings.start)}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          start: parseMinute(event.target.value),
-                        })
-                      }
-                      required
-                    />
-                  </label>
-                  <label className="field">
-                    {t("Until")}
-                    <input
-                      type="time"
-                      value={minuteInput(settings.end)}
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          end: parseMinute(event.target.value),
-                        })
-                      }
-                      required
-                    />
-                  </label>
-                </div>
-                <p className="small muted">
-                  {t(
-                    "Pending steps are rearranged to fit. When time is tight, a shared slot lets you choose one activity.",
-                  )}
-                </p>
-              </fieldset>
+              <GoalSettings settings={settings} onChange={setSettings} />
             )}
             {section === "backup" && (
               <fieldset className="settings-section">
@@ -717,7 +672,7 @@ export function GoalDetails({
           <div className="capacity-box goal-activation">
             <p className="small muted">
               {t(
-                "Add this saved goal to your calendar alongside your other active goals. Steps will fit within your available hours.",
+                "Add this saved goal to your calendar alongside your other active goals. Steps follow your goal settings.",
               )}
             </p>
             <button

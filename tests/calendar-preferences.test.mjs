@@ -39,6 +39,7 @@ test("Older calendars receive display preferences without losing goals or progre
   };
   const restored = c.validateBackup(JSON.parse(JSON.stringify(old)), today);
   assert.deepEqual(restored.settings, {
+    useAvailableTime: true,
     start: 1080,
     end: 1260,
     timezone: "Australia/Brisbane",

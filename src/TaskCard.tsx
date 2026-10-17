@@ -1,11 +1,13 @@
 import { IconButton } from "./ui";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Clock, LockSimple, Square, X } from "@phosphor-icons/react";
 import type { CalendarState, Task, TaskEdit } from "./types";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { TaskEditor } from "./TaskEditor";
 import { clockTime } from "./CalendarViews";
 import * as cal from "./calendar";
+import { useFloatingCard } from "./useFloatingCard";
+import { eventRepeatLabel } from "./eventRepeat";
 
 export function TaskCard({
   state,
@@ -15,6 +17,7 @@ export function TaskCard({
   onClose,
   onSave,
   onComplete,
+  onRemove,
   onTask,
   onChoice,
 }: {
@@ -25,25 +28,31 @@ export function TaskCard({
   onClose: () => void;
   onSave: (edit: TaskEdit) => void;
   onComplete: () => void;
+  onRemove: () => void;
   onTask: (task: Task) => void;
   onChoice: (task: Task) => void;
 }) {
   const t = useInterfaceText();
-  const ref = useRef<HTMLElement>(null);
+  const { ref, position } = useFloatingCard(anchor);
   const editButton = useRef<HTMLButtonElement>(null);
-  const anchorRect = useRef<DOMRect | null>(null);
   const [editing, setEditing] = useState(false);
-  const [position, setPosition] = useState({ left: 16, top: 80 });
-  const goal = cal.goalFor(state, task)!;
+  const goal = cal.goalFor(state, task);
+  const standalone = task.goalId === null;
+  const series = state.eventSeries?.find(
+    (item) => item.id === task.eventSeriesId,
+  );
   const blocked = cal.isBlocked(state, task);
-  const slot = cal
-    .slotsFor(state, task.date)
-    .find((item) => item.id === task.slotId);
+  const slot = (
+    task.allDay
+      ? cal.allDaySlotsFor(state, task.date)
+      : cal.slotsFor(state, task.date)
+  ).find((item) => item.id === task.slotId);
   const needsChoice =
     !!slot && slot.tasks.length > 1 && slot.chosen?.id !== task.id;
   const later = state.tasks
     .filter(
       (item) =>
+        !standalone &&
         item.goalId === task.goalId &&
         item.id !== task.id &&
         item.status === "pending" &&
@@ -57,47 +66,6 @@ export function TaskCard({
     task.date === today &&
     !blocked &&
     !needsChoice;
-
-  useLayoutEffect(() => {
-    const card = ref.current;
-    if (!card) return;
-    function positionCard() {
-      if (!card) return;
-      if (anchor?.isConnected)
-        anchorRect.current = anchor.getBoundingClientRect();
-      const rect = anchorRect.current;
-      const width = card.offsetWidth,
-        height = card.offsetHeight;
-      const gap = 12,
-        margin = 16;
-      const preferredLeft =
-        rect && rect.right + gap + width <= window.innerWidth - margin
-          ? rect.right + gap
-          : rect
-            ? rect.left - gap - width
-            : window.innerWidth - width - margin;
-      setPosition({
-        left: Math.max(
-          margin,
-          Math.min(preferredLeft, window.innerWidth - width - margin),
-        ),
-        top: Math.max(
-          margin,
-          Math.min(rect?.top ?? 80, window.innerHeight - height - margin),
-        ),
-      });
-    }
-    positionCard();
-    const observer = new ResizeObserver(positionCard);
-    observer.observe(card);
-    window.addEventListener("resize", positionCard);
-    window.addEventListener("scroll", positionCard, true);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", positionCard);
-      window.removeEventListener("scroll", positionCard, true);
-    };
-  }, [anchor]);
 
   useEffect(() => {
     ref.current?.focus({ preventScroll: true });
@@ -138,14 +106,16 @@ export function TaskCard({
       ref={ref}
       className="task-card"
       role="region"
-      aria-label={t("Task details")}
+      aria-label={standalone ? t("Event details") : t("Task details")}
       tabIndex={-1}
       style={position}
     >
       <IconButton
         showTooltip={false}
         className="task-card-close"
-        aria-label={t("Close task details")}
+        aria-label={
+          standalone ? t("Close event details") : t("Close task details")
+        }
         onClick={() => {
           onClose();
           anchor?.focus({ preventScroll: true });
@@ -157,7 +127,8 @@ export function TaskCard({
         <TaskEditor
           key={task.id}
           task={task}
-          goalName={goal.name}
+          goalName={goal?.name ?? t("Event")}
+          repeat={series?.repeat ?? "none"}
           today={today}
           onClose={() => setEditing(false)}
           onSave={(edit) => {
@@ -168,7 +139,7 @@ export function TaskCard({
       ) : (
         <>
           <div className="task-card-main">
-            <p className="task-card-goal">{goal.name}</p>
+            <p className="task-card-goal">{goal?.name ?? t("Event")}</p>
             <h2>{task.title}</h2>
             <p className="task-card-date">
               {cal
@@ -179,14 +150,26 @@ export function TaskCard({
                 )
                 .replace(",", "")}
             </p>
-            <p>
-              {clockTime(task.start)} – {clockTime(task.start + task.minutes)}
-            </p>
-            <p className="task-card-duration">
-              <Clock size={17} aria-hidden="true" />
-              {t("{minutes} mins", { minutes: task.minutes })}
-            </p>
+            {task.allDay ? (
+              <p>{t("All day")}</p>
+            ) : (
+              <>
+                <p>
+                  {clockTime(task.start)} –{" "}
+                  {clockTime(task.start + task.minutes)}
+                </p>
+                <p className="task-card-duration">
+                  <Clock size={17} aria-hidden="true" />
+                  {t("{minutes} mins", { minutes: task.minutes })}
+                </p>
+              </>
+            )}
           </div>
+          {series && (
+            <p className="task-card-hint">
+              {t(eventRepeatLabel(series.repeat))}
+            </p>
+          )}
           {blocked && (
             <p className="task-card-hint">
               {t("After:")}{" "}
@@ -243,6 +226,15 @@ export function TaskCard({
               )}
             </button>
           </div>
+          {standalone && (
+            <button
+              className="text-button event-remove danger-action"
+              data-action="destructive"
+              onClick={onRemove}
+            >
+              {series ? t("Remove this event") : t("Remove event")}
+            </button>
+          )}
           {task.status === "pending" && task.date !== today && (
             <p className="task-card-hint">
               {t("Available to complete on the scheduled day.")}

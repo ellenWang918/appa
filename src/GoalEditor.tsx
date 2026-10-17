@@ -141,7 +141,7 @@ export function GoalEditor({
                 "Turning off recurrence replaces upcoming repeats with the project steps listed below. Completed work stays in your history.",
               )
             : t(
-                "Edit pending steps, durations and prerequisites. Changed steps are scheduled within your available hours; completed work stays unchanged.",
+                "Edit pending steps, durations and prerequisites. Changed steps follow your goal settings; completed work stays unchanged.",
               )}
       </p>
       <div className="goal-edit-steps">

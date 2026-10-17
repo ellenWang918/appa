@@ -1,10 +1,12 @@
 import { useInterfaceText } from "./InterfaceLanguage";
 import type { CSSProperties, RefObject, MouseEvent } from "react";
 import { Check, LockSimple } from "@phosphor-icons/react";
-import { clockTime } from "./CalendarViews";
-import type { CalendarState, HolidayLookup, Slot } from "./types";
+import { clockTime, weekNumber } from "./CalendarViews";
+import type { CalendarState, EventDraft, HolidayLookup, Slot } from "./types";
 import * as cal from "./calendar";
 import { holidayLabel } from "./holidayDates";
+import { EventReservation } from "./EventReservation";
+import { AllDayRow } from "./AllDayRow";
 
 const timelineEnd = 24 * 60;
 const hours = Array.from({ length: 25 }, (_, i) => i * 60);
@@ -19,6 +21,9 @@ export function CalendarTimeline({
   currentMinute,
   onDate,
   onSlot,
+  onCreate,
+  draft,
+  onDraftAnchor,
   scrollRef,
   gridRef,
 }: {
@@ -31,6 +36,14 @@ export function CalendarTimeline({
   currentMinute: number;
   onDate: (date: string) => void;
   onSlot: (slot: Slot, anchor: HTMLElement) => void;
+  onCreate: (
+    date: string,
+    start: number,
+    trigger: HTMLElement,
+    allDay?: boolean,
+  ) => void;
+  draft: EventDraft | null;
+  onDraftAnchor: (element: HTMLElement | null) => void;
   scrollRef: RefObject<HTMLDivElement | null>;
   gridRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -67,39 +80,60 @@ export function CalendarTimeline({
         className={`week-board${singleDay ? " single-day-board" : ""}`}
         style={gridStyle}
       >
-        {!singleDay && (
-          <div className="day-headers">
-            <div />
-            {dates.map((date) => (
-              <button
-                className={`day-header ${date === selectedDay ? "current" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
-                key={date}
-                aria-pressed={date === selectedDay}
-                onClick={() => onDate(date)}
-                title={
-                  holidays(date).map(holidayLabel).join(" · ") || undefined
-                }
-              >
-                <span>
-                  {cal.dateLabel(
-                    date,
-                    { weekday: "short" },
-                    state.settings.language,
+        <div className="timeline-heading">
+          {!singleDay && (
+            <div className="day-headers">
+              <span className="timeline-week-number">
+                {state.settings.showWeekNumbers && (
+                  <span
+                    title={t("Week {v0}", {
+                      v0: weekNumber(dates[0], state.settings.weekStartsOn),
+                    })}
+                  >
+                    {t("Wk {v0}", {
+                      v0: weekNumber(dates[0], state.settings.weekStartsOn),
+                    })}
+                  </span>
+                )}
+              </span>
+              {dates.map((date) => (
+                <button
+                  className={`day-header ${date === selectedDay ? "current" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
+                  key={date}
+                  aria-pressed={date === selectedDay}
+                  aria-current={date === today ? "date" : undefined}
+                  onClick={() => onDate(date)}
+                  title={
+                    holidays(date).map(holidayLabel).join(" · ") || undefined
+                  }
+                >
+                  <span>
+                    {cal.dateLabel(
+                      date,
+                      { weekday: "short" },
+                      state.settings.language,
+                    )}
+                  </span>
+                  <strong>{Number(date.slice(-2))}</strong>
+                  {date === today && (
+                    <span className="sr-only">{t("Today")}</span>
                   )}
-                </span>
-                <strong>{Number(date.slice(-2))}</strong>
-                {date === today && (
-                  <span className="sr-only">{t("Today")}</span>
-                )}
-                {holidays(date).length > 0 && (
-                  <small className="header-holiday">
-                    {holidays(date).map(holidayLabel).join(" · ")}
-                  </small>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
+                </button>
+              ))}
+            </div>
+          )}
+          <AllDayRow
+            dates={dates}
+            state={state}
+            today={today}
+            holidays={holidays}
+            selectedTask={selectedTask}
+            draft={draft}
+            onSlot={onSlot}
+            onCreate={onCreate}
+            onDraftAnchor={onDraftAnchor}
+          />
+        </div>
         <div className="time-grid" ref={gridRef}>
           <div className="time-gutter">
             {hours.map((minute) => (
@@ -113,6 +147,34 @@ export function CalendarTimeline({
           </div>
           {slotsByDay.map(({ date, slots }) => (
             <div className="day-column" key={date}>
+              {date >= today && (
+                <button
+                  className="calendar-create-area"
+                  aria-label={t("Create event on {date}", {
+                    date: cal.dateLabel(
+                      date,
+                      { weekday: "long", day: "numeric", month: "long" },
+                      state.settings.language,
+                    ),
+                  })}
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const minute =
+                      event.detail === 0
+                        ? 540
+                        : Math.floor(
+                            (((event.clientY - rect.top) / rect.height) *
+                              timelineEnd) /
+                              15,
+                          ) * 15;
+                    onCreate(
+                      date,
+                      Math.max(0, Math.min(1435, minute)),
+                      event.currentTarget,
+                    );
+                  }}
+                />
+              )}
               {hours.map((minute) => (
                 <div
                   className="grid-line"
@@ -132,6 +194,9 @@ export function CalendarTimeline({
                   onClick={(event) => onSlot(slot, event.currentTarget)}
                 />
               ))}
+              {draft?.date === date && !draft.reservationAllDay && (
+                <EventReservation draft={draft} onAnchor={onDraftAnchor} />
+              )}
             </div>
           ))}
           {currentDayIndex >= 0 && (
@@ -183,16 +248,15 @@ function CalendarEvent({
     goal = cal.goalFor(state, task),
     shared = slot.tasks.length > 1 && !slot.chosen,
     blocked = cal.isBlocked(state, task);
-  if (!goal) return null;
   return (
     <button
-      className={`calendar-event ${goal.color} ${shared ? "shared" : ""} ${slot.done ? "done" : ""} ${blocked ? "blocked" : ""} ${slot.duration < 40 ? "compact" : ""} ${selected ? "selected" : ""}`}
+      className={`calendar-event ${goal?.color ?? "indigo"} ${shared ? "shared" : ""} ${slot.done ? "done" : ""} ${blocked ? "blocked" : ""} ${slot.duration < 40 ? "compact" : ""} ${selected ? "selected" : ""}`}
       style={{
         top: `${(slot.start / timelineEnd) * 100}%`,
         height: `min(max(18px, calc(${(slot.duration / timelineEnd) * 100}% - 2px)), calc(${(available / timelineEnd) * 100}% - 1px))`,
         maxHeight: `calc(${(available / timelineEnd) * 100}% - 1px)`,
       }}
-      title={`${shared ? "Choose one" : task.title} · ${goal.name}`}
+      title={`${shared ? "Choose one" : task.title} · ${goal?.name ?? t("Event")}`}
       onClick={onClick}
       aria-label={t("{v0}, {v1} minutes, {v2}{v3}", {
         v0: shared ? t("Choose one") : task.title,
@@ -217,7 +281,7 @@ function CalendarEvent({
           {slot.tasks.map((t) => `${t.title} ${t.minutes} min`).join(" / ")}
         </span>
       ) : (
-        <small>{goal.name}</small>
+        <small>{goal?.name ?? t("Event")}</small>
       )}
     </button>
   );

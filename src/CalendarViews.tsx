@@ -1,5 +1,7 @@
 import { IconButton } from "./ui";
 import { useInterfaceText } from "./InterfaceLanguage";
+import { EventReservation } from "./EventReservation";
+import type { EventDraft } from "./types";
 import { CaretLeft, CaretRight, Check } from "@phosphor-icons/react";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -7,7 +9,7 @@ import * as cal from "./calendar";
 import type { CalendarState, HolidayLookup, Settings, Slot } from "./types";
 import { holidayLabel } from "./holidayDates";
 
-export type CalendarView = "day" | "week" | "month";
+export type CalendarView = "day" | "week" | "month" | "year";
 export const monthStart = (date: string) => date.slice(0, 7) + "-01";
 export function shiftMonth(date: string, offset: number): string {
   const value = new Date(date + "T12:00:00Z");
@@ -18,7 +20,9 @@ export function shiftMonth(date: string, offset: number): string {
 export function monthDays(month: string, startsOn = 1): string[] {
   const start = monthStart(month);
   const first = cal.weekStart(start, startsOn);
-  const last = cal.addDays(shiftMonth(start, 1), -1);
+  const lastDay = new Date(start + "T12:00:00Z");
+  lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+  const last = lastDay.toISOString().slice(0, 10);
   const count =
     Math.ceil(
       (Date.parse(last) - Date.parse(first) + 86400000) / (7 * 86400000),
@@ -34,7 +38,7 @@ export function weekNumber(date: string, startsOn = 1): number {
   const first = Date.UTC(value.getUTCFullYear(), 0, 1, 12);
   return Math.ceil(((value.getTime() - first) / 86400000 + 1) / 7);
 }
-function weekdays(settings: Settings, width: "short" | "narrow") {
+export function weekdays(settings: Settings, width: "short" | "narrow") {
   return Array.from({ length: 7 }, (_, index) =>
     cal.dateLabel(
       cal.addDays("2026-10-11", (settings.weekStartsOn + index) % 7),
@@ -43,8 +47,7 @@ function weekdays(settings: Settings, width: "short" | "narrow") {
     ),
   );
 }
-export const clockTime = (minutes: number) =>
-  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+export { clockTime } from "./calendar";
 
 export function MiniCalendar({
   month,
@@ -65,6 +68,7 @@ export function MiniCalendar({
 }) {
   const t = useInterfaceText();
   const dates = monthDays(month, settings.weekStartsOn);
+  const selectedWeek = cal.weekStart(selectedDay, settings.weekStartsOn);
 
   return (
     <section
@@ -100,7 +104,10 @@ export function MiniCalendar({
         {dates
           .filter((_, index) => index % 7 === 0)
           .map((weekStart, weekIndex) => (
-            <div className="mini-week" key={weekStart}>
+            <div
+              className={`mini-week ${weekStart === selectedWeek ? "is-selected-week" : ""}`}
+              key={weekStart}
+            >
               {settings.showWeekNumbers && (
                 <span
                   className="mini-week-number"
@@ -114,7 +121,7 @@ export function MiniCalendar({
               {dates.slice(weekIndex * 7, weekIndex * 7 + 7).map((date) => (
                 <button
                   key={date}
-                  className={`${date === selectedDay ? "selected" : ""} ${monthStart(date) !== monthStart(month) ? "outside-month" : ""} ${date === today ? "is-today" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
+                  className={`${monthStart(date) !== monthStart(month) ? "outside-month" : ""} ${date === today ? "is-today" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
                   aria-label={cal.dateLabel(
                     date,
                     {
@@ -150,6 +157,9 @@ export function MonthCalendar({
   holidays,
   onSelect,
   onSlot,
+  onCreate,
+  draft,
+  onDraftAnchor,
   onVisibleMonth,
   scrollRequest,
 }: {
@@ -160,6 +170,9 @@ export function MonthCalendar({
   holidays: HolidayLookup;
   onSelect: (date: string) => void;
   onSlot: (slot: Slot, anchor: HTMLElement) => void;
+  onCreate: (date: string, start?: number, trigger?: HTMLElement) => void;
+  draft: EventDraft | null;
+  onDraftAnchor: (element: HTMLElement | null) => void;
   onVisibleMonth: (month: string) => void;
   scrollRequest: number;
 }) {
@@ -307,7 +320,10 @@ export function MonthCalendar({
             <div className="month-grid">
               {monthDays(visibleMonth, state.settings.weekStartsOn).map(
                 (date, index) => {
-                  const slots = cal.slotsFor(state, date);
+                  const slots = [
+                    ...cal.allDaySlotsFor(state, date),
+                    ...cal.slotsFor(state, date),
+                  ];
                   return (
                     <Fragment key={date}>
                       {state.settings.showWeekNumbers && index % 7 === 0 && (
@@ -323,6 +339,25 @@ export function MonthCalendar({
                       <section
                         className={`month-cell ${monthStart(date) !== visibleMonth ? "outside-month" : ""} ${date === selectedDay ? "selected" : ""}`}
                       >
+                        {date >= today && (
+                          <button
+                            className="calendar-create-area"
+                            aria-label={t("Create event on {date}", {
+                              date: cal.dateLabel(
+                                date,
+                                {
+                                  day: "numeric",
+                                  month: "long",
+                                  year: "numeric",
+                                },
+                                state.settings.language,
+                              ),
+                            })}
+                            onClick={(event) =>
+                              onCreate(date, undefined, event.currentTarget)
+                            }
+                          />
+                        )}
                         <button
                           className="month-day"
                           aria-label={t("View {v0}", {
@@ -365,9 +400,21 @@ export function MonthCalendar({
                                 ? t("Choose one")
                                 : (slot.chosen || slot.tasks[0]).title}
                             </span>
-                            <small>{clockTime(slot.start)}</small>
+                            <small>
+                              {slot.tasks[0].allDay
+                                ? t("All day")
+                                : cal.clockTime(slot.start)}
+                            </small>
                           </button>
                         ))}
+                        {draft?.date === date &&
+                          monthStart(date) === visibleMonth && (
+                            <EventReservation
+                              draft={draft}
+                              onAnchor={onDraftAnchor}
+                              month
+                            />
+                          )}
                         {slots.length > 3 && (
                           <button
                             className="more-tasks"
