@@ -12,4 +12,7 @@ docs/private/
 docs/button-audit-2026-10-16.md
 docs/day-header-design-qa.md
 *.log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 .npmrc

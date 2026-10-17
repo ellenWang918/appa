@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { DestructiveAction } from "./DestructiveAction";
+import { goalDeletionImpact } from "./actionPatterns";
+import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
+import { useId, useState } from "react";
 import { Plus, Trash } from "@phosphor-icons/react";
 import { useInterfaceText } from "./InterfaceLanguage";
 import type { CalendarState, Goal, GoalEdit, Task } from "./types";
@@ -22,6 +25,7 @@ function initialEdit(goal: Goal, state: CalendarState): GoalEdit {
   }
   pending.forEach(add);
   return {
+    color: goal.color,
     name: goal.name,
     kind: goal.recurrence ? "recurring" : "project",
     perWeek: goal.recurrence?.perWeek ?? null,
@@ -45,14 +49,22 @@ export function GoalEditor({
   state,
   onCancel,
   onSave,
+  onDelete,
+  onBackup,
 }: {
   goal: Goal;
   state: CalendarState;
   onCancel: () => void;
   onSave: (edit: GoalEdit) => void;
+  onDelete: () => void;
+  onBackup: () => void;
 }) {
+  const deletion = goalDeletionImpact(state, goal.id);
+  const errorId = useId();
   const t = useInterfaceText();
+  const guard = useActionGuard();
   const [draft, setDraft] = useState(() => initialEdit(goal, state));
+  useUnsavedChanges(draft);
   const [removed, setRemoved] = useState<GoalEdit | null>(null);
   const [error, setError] = useState("");
   const completed = state.tasks.filter(
@@ -74,6 +86,7 @@ export function GoalEditor({
   return (
     <form
       className="goal-editor"
+      aria-describedby={error ? errorId : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         try {
@@ -83,6 +96,33 @@ export function GoalEditor({
         }
       }}
     >
+      <fieldset className="goal-colour-picker">
+        <legend>{t("Goal colour")}</legend>
+        <div className="goal-colour-options">
+          {(
+            [
+              ["indigo", "Sage"],
+              ["slate", "Slate blue"],
+              ["amber", "Ochre"],
+              ["rose", "Dusty plum"],
+              ["clay", "Clay"],
+              ["teal", "Muted teal"],
+            ] as const
+          ).map(([color, label]) => (
+            <label key={color} data-goal-color={color}>
+              <input
+                type="radio"
+                name="goal-colour"
+                value={color}
+                checked={draft.color === color}
+                onChange={() => update({ ...draft, color })}
+              />
+              <span className="goal-colour-swatch" aria-hidden="true" />
+              {t(label)}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div className="two-fields">
         <label className="field">
           {t("Goal name")}
@@ -220,7 +260,7 @@ export function GoalEditor({
               type="button"
               className="text-button danger-action"
               data-action="destructive"
-              aria-label={t("Remove step {v0}", { v0: index + 1 })}
+              aria-label={t("Delete step {v0}", { v0: index + 1 })}
               onClick={() => {
                 setRemoved(draft);
                 setDraft({
@@ -238,20 +278,20 @@ export function GoalEditor({
               }}
             >
               <Trash size={15} aria-hidden="true" />
-              {t("Remove step")}
+              {t("Delete step")}
             </button>
           </section>
         ))}
       </div>
       {removed && (
         <div className="draft-removal-notice" role="status">
-          <span>{t("Step removed.")}</span>
+          <span>{t("Step deleted.")}</span>
           <button
             type="button"
             className="text-button"
             onClick={() => update(removed)}
           >
-            {t("Undo removal")}
+            {t("Undo deletion")}
           </button>
         </div>
       )}
@@ -270,7 +310,7 @@ export function GoalEditor({
         }
       >
         <Plus size={16} aria-hidden="true" />
-        {t("Add a step")}
+        {t("Create step")}
       </button>
       {completed.length > 0 && (
         <details className="goal-completed-history">
@@ -292,12 +332,31 @@ export function GoalEditor({
         </details>
       )}
       {error && (
-        <p className="inline-error" role="alert">
+        <p id={errorId} className="inline-error" role="alert">
           {t(error)}
         </p>
       )}
       <div className="dialog-actions">
-        <button type="button" className="secondary" onClick={onCancel}>
+        <DestructiveAction
+          onBackup={onBackup}
+          label="Delete goal"
+          resourceName={goal.name}
+          impact={deletion.impact}
+          description={t(
+            "Delete {name}, its {count} steps (including {completed} completed), repeating sessions and saved choices? Export a backup in Settings first if you want to keep this history.",
+            {
+              name: goal.name,
+              count: deletion.count,
+              completed: deletion.completed,
+            },
+          )}
+          onConfirm={onDelete}
+        />
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => guard.request(onCancel)}
+        >
           {t("Cancel")}
         </button>
         <button type="submit" className="primary">

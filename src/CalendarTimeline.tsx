@@ -147,34 +147,39 @@ export function CalendarTimeline({
           </div>
           {slotsByDay.map(({ date, slots }) => (
             <div className="day-column" key={date}>
-              {date >= today && (
-                <button
-                  className="calendar-create-area"
-                  aria-label={t("Create event on {date}", {
-                    date: cal.dateLabel(
-                      date,
-                      { weekday: "long", day: "numeric", month: "long" },
-                      state.settings.language,
-                    ),
-                  })}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const minute =
-                      event.detail === 0
-                        ? 540
-                        : Math.floor(
-                            (((event.clientY - rect.top) / rect.height) *
-                              timelineEnd) /
-                              15,
-                          ) * 15;
-                    onCreate(
-                      date,
-                      Math.max(0, Math.min(1435, minute)),
-                      event.currentTarget,
-                    );
-                  }}
-                />
-              )}
+              <button
+                className="calendar-create-area"
+                aria-description={t(
+                  "Double-click or press Enter to create an event.",
+                )}
+                aria-label={t("Create event on {date}", {
+                  date: cal.dateLabel(
+                    date,
+                    { weekday: "long", day: "numeric", month: "long" },
+                    state.settings.language,
+                  ),
+                })}
+                onClick={(event) => {
+                  if (event.detail === 0)
+                    onCreate(date, 540, event.currentTarget);
+                }}
+                onDoubleClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const minute =
+                    event.detail === 0
+                      ? 540
+                      : Math.floor(
+                          (((event.clientY - rect.top) / rect.height) *
+                            timelineEnd) /
+                            15,
+                        ) * 15;
+                  onCreate(
+                    date,
+                    Math.max(0, Math.min(1435, minute)),
+                    event.currentTarget,
+                  );
+                }}
+              />
               {hours.map((minute) => (
                 <div
                   className="grid-line"
@@ -250,6 +255,7 @@ function CalendarEvent({
     blocked = cal.isBlocked(state, task);
   return (
     <button
+      data-goal-color={cal.slotGoalColor(state, slot)}
       className={`calendar-event ${goal?.color ?? "indigo"} ${shared ? "shared" : ""} ${slot.done ? "done" : ""} ${blocked ? "blocked" : ""} ${slot.duration < 40 ? "compact" : ""} ${selected ? "selected" : ""}`}
       style={{
         top: `${(slot.start / timelineEnd) * 100}%`,

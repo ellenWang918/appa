@@ -1,3 +1,4 @@
+import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
 import { useEffect, useId, useRef, useState } from "react";
 import { X } from "@phosphor-icons/react";
 import type { EventDraft, TaskEdit } from "./types";
@@ -13,7 +14,6 @@ export function EventCreator({
   draft,
   anchor,
   trigger,
-  today,
   timezone,
   onClose,
   onDraftChange,
@@ -29,6 +29,7 @@ export function EventCreator({
   onSave: (event: TaskEdit) => void;
 }) {
   const t = useInterfaceText();
+  const guard = useActionGuard();
   const errorId = useId();
   const headingId = useId();
   const nameRef = useRef<HTMLInputElement>(null);
@@ -43,6 +44,14 @@ export function EventCreator({
   const [endTime, setEndTime] = useState(
     clockTime((draft.start + draft.minutes) % 1440),
   );
+  useUnsavedChanges({
+    title: draft.title,
+    date,
+    startTime,
+    endTime,
+    allDay: !!draft.allDay,
+    repeat: draft.repeat ?? "none",
+  });
   const minuteFor = (value: string) => {
     const [hour, minute] = value.split(":").map(Number);
     return hour * 60 + minute;
@@ -52,6 +61,7 @@ export function EventCreator({
   }, []);
   useEffect(() => {
     function onPointer(event: PointerEvent) {
+      if (guard.confirming()) return;
       const target = event.target;
       if (
         target instanceof Node &&
@@ -62,6 +72,7 @@ export function EventCreator({
         onClose();
     }
     function onKey(event: KeyboardEvent) {
+      if (guard.confirming()) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onClose(true);
@@ -153,9 +164,8 @@ export function EventCreator({
             onChange={(event) => {
               const value = event.target.value;
               setDate(value);
-              if (value && value >= today) onDraftChange({ date: value });
+              if (value) onDraftChange({ date: value });
             }}
-            min={today}
             required
           />
         </label>

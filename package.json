@@ -1,6 +1,6 @@
 {
   "name": "appa",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -45,6 +45,6 @@
     "url": "https://github.com/ellenWang918/appa.git"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   }
 }

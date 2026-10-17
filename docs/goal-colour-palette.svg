@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="510" viewBox="0 0 960 510">
+<rect width="960" height="510" fill="#F3F3F5"/>
+<g font-family="Inter, Segoe UI, sans-serif" fill="#242426">
+<text x="36" y="45" font-size="22" font-weight="600">Appa · Goal colours</text>
+<text x="36" y="72" font-size="13" fill="#66666C">Muted colour for identity. Neutral text for reading. Red stays with today and key actions.</text>
+<rect x="36" y="99" width="288" height="174" rx="10" fill="white"/>
+<rect x="52" y="115" width="40" height="40" rx="8" fill="#365E9D"/>
+<text x="104" y="131" font-size="15" font-weight="600">Slate blue</text>
+<text x="104" y="151" font-size="12" fill="#66666C">#365E9D</text>
+<rect x="52" y="176" width="256" height="73" rx="5" fill="#E5EDFC"/>
+<rect x="52" y="176" width="3" height="73" rx="1.5" fill="#365E9D"/>
+<text x="66" y="202" font-size="13" font-weight="600">A small step forward</text>
+<text x="66" y="224" font-size="12" fill="#66666C">09:00 – 09:30 · Goal 1</text>
+<rect x="336" y="99" width="288" height="174" rx="10" fill="white"/>
+<rect x="352" y="115" width="40" height="40" rx="8" fill="#3F704D"/>
+<text x="404" y="131" font-size="15" font-weight="600">Sage</text>
+<text x="404" y="151" font-size="12" fill="#66666C">#3F704D</text>
+<rect x="352" y="176" width="256" height="73" rx="5" fill="#E5F0DF"/>
+<rect x="352" y="176" width="3" height="73" rx="1.5" fill="#3F704D"/>
+<text x="366" y="202" font-size="13" font-weight="600">A small step forward</text>
+<text x="366" y="224" font-size="12" fill="#66666C">09:00 – 09:30 · Goal 2</text>
+<rect x="636" y="99" width="288" height="174" rx="10" fill="white"/>
+<rect x="652" y="115" width="40" height="40" rx="8" fill="#85610C"/>
+<text x="704" y="131" font-size="15" font-weight="600">Ochre</text>
+<text x="704" y="151" font-size="12" fill="#66666C">#85610C</text>
+<rect x="652" y="176" width="256" height="73" rx="5" fill="#FAF0CD"/>
+<rect x="652" y="176" width="3" height="73" rx="1.5" fill="#85610C"/>
+<text x="666" y="202" font-size="13" font-weight="600">A small step forward</text>
+<text x="666" y="224" font-size="12" fill="#66666C">09:00 – 09:30 · Goal 3</text>
+<rect x="36" y="289" width="288" height="174" rx="10" fill="white"/>
+<rect x="52" y="305" width="40" height="40" rx="8" fill="#79549B"/>
+<text x="104" y="321" font-size="15" font-weight="600">Dusty plum</text>
+<text x="104" y="341" font-size="12" fill="#66666C">#79549B</text>
+<rect x="52" y="366" width="256" height="73" rx="5" fill="#F1E5FA"/>
+<rect x="52" y="366" width="3" height="73" rx="1.5" fill="#79549B"/>
+<text x="66" y="392" font-size="13" font-weight="600">A small step forward</text>
+<text x="66" y="414" font-size="12" fill="#66666C">09:00 – 09:30 · Goal 4</text>
+<rect x="336" y="289" width="288" height="174" rx="10" fill="white"/>
+<rect x="352" y="305" width="40" height="40" rx="8" fill="#A1532D"/>
+<text x="404" y="321" font-size="15" font-weight="600">Clay</text>
+<text x="404" y="341" font-size="12" fill="#66666C">#A1532D</text>
+<rect x="352" y="366" width="256" height="73" rx="5" fill="#FBE7DA"/>
+<rect x="352" y="366" width="3" height="73" rx="1.5" fill="#A1532D"/>
+<text x="366" y="392" font-size="13" font-weight="600">A small step forward</text>
+<text x="366" y="414" font-size="12" fill="#66666C">09:00 – 09:30 · Goal 5</text>
+<rect x="636" y="289" width="288" height="174" rx="10" fill="white"/>
+<rect x="652" y="305" width="40" height="40" rx="8" fill="#226E78"/>
+<text x="704" y="321" font-size="15" font-weight="600">Muted teal</text>
+<text x="704" y="341" font-size="12" fill="#66666C">#226E78</text>
+<rect x="652" y="366" width="256" height="73" rx="5" fill="#DFF3F2"/>
+<rect x="652" y="366" width="3" height="73" rx="1.5" fill="#226E78"/>
+<text x="666" y="392" font-size="13" font-weight="600">A small step forward</text>
+<text x="666" y="414" font-size="12" fill="#66666C">09:00 – 09:30 · Goal 6</text>
+<text x="36" y="492" font-size="12" fill="#66666C">Accent: goal dots and thin rules · Tint: subtle goal-event surfaces · Text: Appa’s existing neutral colours</text>
+</g></svg>

@@ -3,6 +3,83 @@ import assert from "node:assert/strict";
 import * as c from "../dist/runtime/src/calendar.js";
 
 const today = "2026-10-16";
+
+test("Goal colour changes preserve schedules, persist in backups and support Undo", () => {
+  for (const goalId of ["portfolio", "move"]) {
+    const state = c.seed(today);
+    const original = structuredClone(state);
+    const next = c.editGoal(
+      state,
+      goalId,
+      {
+        ...editFor(state, goalId),
+        color: "clay",
+      },
+      today,
+    );
+    assert.equal(next.goals.find((goal) => goal.id === goalId).color, "clay");
+    assert.deepEqual(next.tasks, state.tasks);
+    assert.deepEqual(c.validateBackup(next, today).goals, next.goals);
+    assert.deepEqual(c.undoChange(next).goals, state.goals);
+    assert.throws(
+      () =>
+        c.editGoal(
+          state,
+          goalId,
+          {
+            ...editFor(state, goalId),
+            color: "invalid",
+          },
+          today,
+        ),
+      /valid goal colour/,
+    );
+    assert.deepEqual(state, original);
+  }
+});
+
+test("Deleting a goal removes its history and repeats, preserves other work and supports Undo", () => {
+  let state = c.seed(today);
+  state.choices[`${today}/move-slot`] = "stretch";
+  state = c.completeTask(state, "stretch", today);
+  state = c.createEvent(
+    state,
+    {
+      title: "Appointment",
+      date: today,
+      start: 540,
+      minutes: 30,
+    },
+    today,
+  );
+  const original = structuredClone(state);
+  const next = c.deleteGoal(state, "move");
+  assert.equal(
+    next.goals.some((goal) => goal.id === "move"),
+    false,
+  );
+  assert.equal(
+    next.tasks.some((task) => task.goalId === "move"),
+    false,
+  );
+  assert.deepEqual(
+    next.tasks,
+    state.tasks.filter((task) => task.goalId !== "move"),
+  );
+  assert.deepEqual(next.choices, {});
+  assert.deepEqual(c.validateBackup(next, today).tasks, next.tasks);
+  assert.equal(
+    c
+      .extendRecurrences(next, today)
+      .tasks.some((task) => task.goalId === "move"),
+    false,
+  );
+  assert.deepEqual(c.undoChange(next).goals, state.goals);
+  assert.deepEqual(c.undoChange(next).tasks, state.tasks);
+  assert.deepEqual(c.undoChange(next).choices, state.choices);
+  assert.deepEqual(state, original);
+  assert.throws(() => c.deleteGoal(state, "missing"), /no longer available/);
+});
 function editFor(state, goalId) {
   const goal = state.goals.find((g) => g.id === goalId);
   return {
@@ -283,6 +360,11 @@ test("Removing a selected shared step rejects an overlapping reservation atomica
   state.choices[`${today}/shared`] = "short-task";
   c.validateBackup(state, today);
   const original = structuredClone(state);
+  assert.throws(
+    () => c.deleteGoal(state, "short", today),
+    /remaining shared reservation.*Move the other activity/,
+  );
+  assert.deepEqual(state, original);
   assert.throws(
     () =>
       c.editGoal(

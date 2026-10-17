@@ -1,3 +1,6 @@
+import { DestructiveAction } from "./DestructiveAction";
+import { goalDeletionImpact } from "./actionPatterns";
+import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { useEffect, useRef, useState } from "react";
 import type { SetStateAction } from "react";
@@ -364,22 +367,22 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
                     className="text-button danger-action remove-step"
                     data-action="destructive"
                     onClick={() => removeTask(index)}
-                    aria-label={t("Remove step {v0}", { v0: index + 1 })}
+                    aria-label={t("Delete step {v0}", { v0: index + 1 })}
                   >
                     <Trash size={18} />
-                    {t("Remove step")}
+                    {t("Delete step")}
                   </button>
                 </div>
               ))}
             </div>
             {removedPlan && (
               <div className="draft-removal-notice" role="status">
-                <span>{t("Step removed.")}</span>
+                <span>{t("Step deleted.")}</span>
                 <button
                   className="text-button"
                   onClick={() => setPlan(removedPlan)}
                 >
-                  {t("Undo removal")}
+                  {t("Undo deletion")}
                 </button>
               </div>
             )}
@@ -397,7 +400,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
               }
             >
               <Plus size={16} />
-              {t("Add a step")}
+              {t("Create step")}
             </button>
             <div className="capacity-box">
               <label className="field small">
@@ -479,7 +482,8 @@ export function Settings({
   const [section, setSection] =
     useState<(typeof settingsSections)[number]["id"]>("user");
   const panel = useRef<HTMLDivElement>(null);
-  const editable = section === "calendar" || section === "goals";
+  const dirty = useUnsavedChanges(settings);
+  const editable = dirty || section === "calendar" || section === "goals";
   return (
     <Dialog
       title={t("Settings")}
@@ -610,13 +614,18 @@ export function GoalDetails({
   onClose,
   onActivate,
   onSave,
+  onDelete,
+  onBackup,
 }: {
   goal: Goal;
   state: CalendarState;
   onClose: () => void;
   onActivate: () => void;
   onSave: (edit: GoalEdit) => void;
+  onDelete: () => void;
+  onBackup: () => void;
 }) {
+  const deletion = goalDeletionImpact(state, goal.id);
   const t = useInterfaceText();
 
   const [error, setError] = useState("");
@@ -635,8 +644,10 @@ export function GoalDetails({
       <Dialog title={t("Edit goal")} onClose={onClose} wide>
         <div className="dialog-body">
           <GoalEditor
+            onBackup={onBackup}
             goal={goal}
             state={state}
+            onDelete={onDelete}
             onCancel={() => setEditing(false)}
             onSave={(edit) => {
               onSave(edit);
@@ -667,6 +678,23 @@ export function GoalDetails({
               {t("Edit goal")}
             </button>
           </div>
+        )}
+        {goal.status === "later" && (
+          <DestructiveAction
+            onBackup={onBackup}
+            label="Delete goal"
+            resourceName={goal.name}
+            impact={deletion.impact}
+            description={t(
+              "Delete {name}, its {count} steps (including {completed} completed), repeating sessions and saved choices? Export a backup in Settings first if you want to keep this history.",
+              {
+                name: goal.name,
+                count: deletion.count,
+                completed: deletion.completed,
+              },
+            )}
+            onConfirm={onDelete}
+          />
         )}
         {goal.status === "later" && tasks.length > 0 && (
           <div className="capacity-box goal-activation">

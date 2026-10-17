@@ -113,7 +113,13 @@ export function IconButton({
 }
 
 export function Dot({ color }: { color: GoalColor | "gray" }) {
-  return <span className={`dot ${color}`} aria-hidden="true" />;
+  return (
+    <span
+      className={`dot ${color}`}
+      data-goal-color={color === "gray" ? undefined : color}
+      aria-hidden="true"
+    />
+  );
 }
 export function Dialog({
   title,
@@ -130,6 +136,7 @@ export function Dialog({
 }) {
   const t = useInterfaceText();
 
+  const titleId = useId();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -137,11 +144,11 @@ export function Dialog({
     dialog.showModal();
     return () => dialog.close();
   }, []);
-  return (
+  return createPortal(
     <dialog
       ref={ref}
       className={`${wide ? "dialog wide" : "dialog"} ${className}`.trim()}
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -151,7 +158,7 @@ export function Dialog({
       }}
     >
       <header className="dialog-header">
-        <h2 id="dialog-title">{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <IconButton
           showTooltip={false}
           className="icon-button"
@@ -162,6 +169,7 @@ export function Dialog({
         </IconButton>
       </header>
       {children}
-    </dialog>
+    </dialog>,
+    document.body,
   );
 }

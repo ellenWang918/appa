@@ -16,6 +16,8 @@
     "src/calendar.ts",
     "src/holidayDates.ts",
     "src/types.ts",
-    "src/errors.ts"
+    "src/errors.ts",
+    "src/actionPatterns.ts",
+    "src/planningChat.ts"
   ]
 }

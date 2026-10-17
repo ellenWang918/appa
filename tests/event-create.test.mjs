@@ -14,6 +14,37 @@ const add = (state, patch = {}) =>
 const reload = (state) =>
   c.validateBackup(JSON.parse(JSON.stringify(state)), today);
 
+test("Past events support creation, editing, reload and recovery without moving", () => {
+  const date = c.addDays(today, -7);
+  for (const extra of [{}, { allDay: true }, { repeat: "weekly" }]) {
+    const original = c.blank(today);
+    let state = add(original, { date, ...extra });
+    const event = state.tasks[0];
+    assert.equal(event.date, date);
+    assert.equal(
+      c.slotsFor(state, date).length + c.allDaySlotsFor(state, date).length,
+      1,
+    );
+    assert.deepEqual(reload(state).tasks, state.tasks);
+    assert.deepEqual(c.catchUp(state, today, 540, true).tasks, state.tasks);
+    assert.deepEqual(c.undoChange(state).tasks, original.tasks);
+    state = c.editTask(
+      state,
+      event.id,
+      {
+        ...appointment,
+        date: c.addDays(date, -1),
+        ...extra,
+      },
+      today,
+    );
+    assert.equal(state.tasks[0].date, c.addDays(date, -1));
+    assert.deepEqual(reload(state).tasks, state.tasks);
+  }
+  const state = add(c.blank(today), { date });
+  assert.throws(() => add(state, { date }), /overlaps/);
+});
+
 test("Standalone events save without goals, retain exact times on reload, and support Undo", () => {
   const state = c.blank(today);
   const next = add(state, { title: "  Dentist appointment  " });
@@ -62,7 +93,6 @@ test("Event creation rejects invalid input without changing the calendar or exis
   for (const patch of [
     { title: "a".repeat(181) },
     { date: "2026-02-30" },
-    { date: "2026-10-16" },
     { start: -1 },
     { start: 1440 },
     { start: 0.5 },

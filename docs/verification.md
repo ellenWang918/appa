@@ -1,5 +1,22 @@
 # Verification status
 
+## Local Windows update to 0.1.5 — 2026-10-18
+
+- Built the Windows x64 installer and installed Appa 0.1.5 over 0.1.4. Installer exit code is zero, executable product version is 0.1.5.0, and the installed `app.asar` hash matches the verified build exactly.
+- Retained the original profile, installer identity and persistent origin. Before installing, saved a private profile copy under the ignored `.local/` directory. The saved origin settings, account registrations and encrypted credentials had identical hashes before and immediately after installation.
+- Started the installed application. Its processes are responding; the private production service returns HTTP 403 without its device cookie. SQLite schema version 1 and the main workspace are initialized in the retained profile. This service/database check does not inspect calendar content or prove native visual interaction quality.
+- All **143 automated checks**, strict TypeScript checks and the production build pass. Package inspection confirms the compiled client, runtime, SQLite store and calendar assistant; it excludes TypeScript source, tests, private QA, source maps, database files, registrations and credentials.
+- The installer and SHA-256 checksum are retained under `release/`. No public GitHub release or installer upload is included in this source update. Live ChatGPT sign-in/inference, visual interaction checks and native Undo/restart flows remain pending.
+
+## SQLite and calendar assistant source update — 2026-10-18
+
+- Full regression suite: **143 passed, 0 failed**. Strict TypeScript checks and the production frontend/runtime build pass. This includes the retained static-hosting contract.
+- Migration/store tests cover original raw JSON preservation, stable IDs, recurrence/group/colour compatibility, reopening from SQLite, corrupt legacy recovery, SQL search, invalid input and stale-write rejection without changing saved records or indexes.
+- Calendar assistant tests cover hidden groups, recurring history without duplicate occurrences, future exclusion for “last”, recorded versus completed status, missing results, availability reservations and bounded follow-up context with editable proposal details.
+- Local HTTP integration uses simulated ChatGPT/OAuth responses. It verifies grounded search instead of model-invented facts, new goal/event drafts without writes, explicit candidate selection and preview, atomic application, batch Undo, unchanged work, and stale/cross-workspace/replayed proposal rejection. Calendar changes during inference invalidate its result. Existing private-cookie, same-origin, CSRF and credential tests pass.
+- Node's built-in SQLite was exercised in the CLI and the repository's pinned Electron runtime (Electron runtime Node 24.21.0). The running development service at `127.0.0.1:5173` returned HTTP 200 with `storage: sqlite`; this status check did not read or modify calendar content.
+- Browser visual/interaction verification remains blocked by the tool URL policy recorded in `design-qa.md`. No alternate browser automation was used to bypass it. Live ChatGPT sign-in/inference and native visual/restart interactions remain unverified. Packaging, installation and SQLite initialization were subsequently checked as recorded above; the source tests alone do not verify the user's actual calendar contents.
+
 ## Local Windows update to 0.1.3 — 2026-10-16
 
 - Built and installed Appa 0.1.3 over the existing per-user installation. Installer exit code is zero, executable product version is 0.1.3.0, and the installed application archive exactly matches the verified build.

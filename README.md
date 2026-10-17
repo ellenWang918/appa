@@ -36,7 +36,7 @@ Open **Settings → User** and choose **Sign in with ChatGPT → Continue to Cha
 
 ChatGPT plan usage depends on account eligibility and shares your existing plan limits. This app does not provide an AI subscription or promise support for every provider. The initial integration supports eligible ChatGPT Plus and Pro accounts through OpenAI's documented open-source/local-app flow. See the [official overview](https://developers.openai.com/siwc/token-sharing-open-source) and [preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations).
 
-The desktop app securely remembers your sign-in using Windows-protected encryption and renews it automatically after reopening. Use **Settings → User → Sign out** to remove the saved session. OpenAI may require sign-in again if access is revoked or the renewable session expires. Tokens are available only to the main process; they are excluded from calendar backups and browser storage. Account registration metadata and a stable installation ID are saved separately. The browser development preview keeps credentials in memory only. Your goal text and clarification are sent directly to OpenAI only when you request AI planning. Manual planning and the calendar work offline.
+The desktop app securely remembers your sign-in using Windows-protected encryption and renews it automatically after reopening. Use **Settings → User → Sign out** to remove the saved session. OpenAI may require sign-in again if access is revoked or the renewable session expires. Tokens are available only to the main process; they are excluded from calendar backups and browser storage. Account registration metadata and a stable installation ID are saved separately. The browser development preview keeps credentials in memory only. When you use AI chat, your message, recent conversation and necessary date/timezone/availability context are sent directly to OpenAI. Calendar searches and move validation run locally; records shown in earlier chat replies can be included in a follow-up conversation. Manual planning and the calendar work offline.
 
 Live account consent and real inference require an eligible user's authorization. Automated tests cover protocol and application boundaries; they do not replace live account verification.
 
@@ -45,13 +45,13 @@ Live account consent and real inference require an eligible user's authorization
 - Day, Week, Month and Year views use the same local calendar. Navigate dates with the left month picker or the header arrows; **Today** returns to the current date.
 - Scroll Month view up or down to browse earlier and later months. The heading and mini calendar follow the visible month; **Today** jumps back to this month.
 - Scroll Year view in either direction to browse earlier and later years. Each year shows all twelve months, and the heading follows the visible year. Select a month heading to open Month or a date to open Day.
-- Use **Create event** or select empty calendar space to add an event without a goal. Events can be timed or all day and can repeat daily, weekly, fortnightly, monthly or yearly. Public holidays appear in the All day row. Event changes support Undo, and fixed events reserve space when goals are scheduled.
+- Use **Create event** or double-click an empty calendar slot to add an event without a goal. Events can be timed or all day and can repeat daily, weekly, fortnightly, monthly or yearly. Public holidays appear in the All day row. Event changes support Undo, and fixed events reserve space when goals are scheduled.
 - Week always shows Monday through Sunday, with a full-day timeline from 00:00 to 24:00.
 - Day and Week open at the current time. **Today** returns the timeline there after you scroll; it stays under your control as the clock advances.
 - Day places an hourly timeline on the left and its task list on the right, with independent scrolling. On narrow screens, the task list sits below the timeline.
 - Day's header shows the surrounding Monday–Sunday week. Select any date to update both panels.
 - Drag the divider beside Day's task list to resize it. Your width is remembered; double-click the divider to reset it. Keyboard users can focus it and use Left/Right arrows.
-- Describe an intention in the floating input to open the planner. Tasks are scheduled only after approval.
+- Use the floating chat to plan a goal/event, ask about calendar history, or rearrange upcoming entries. Review new work before saving; select entries and preview new times before applying moves. One Undo restores the complete move set.
 - Select a task to open its details, choose an activity in a shared slot, or mark it complete. The selected task keeps its outline after the details close.
 - Task details float beside the event, keeping the calendar usable. Choose **Edit** to change its name, date and start/end times in the same card, then **Update** to save or **Cancel** to discard the edit. Duration follows the time range; scheduling checks and Undo still apply.
 - Tasks aim at 5–25 minutes; genuine prerequisites preserve order. Week rows expand for short steps so consecutive five-minute tasks remain readable.
@@ -64,7 +64,7 @@ The interface uses a light grey calendar, a left month navigator and a floating 
 
 ## Your data
 
-Goals, drafts, settings and progress are stored in the desktop app's local profile. There is no maintainer-operated AI server, analytics or cloud synchronization. Local data is not encrypted by this app. Keep private backups through **Settings → Backup → Export backup**.
+Goals, events, drafts, settings and progress are stored in a local SQLite database, `calendar.sqlite`, in the desktop app's profile (`%APPDATA%/AI Goal Calendar`). Existing calendars migrate on first opening, with the original browser copy retained. The development preview uses a separate `.local/calendar.sqlite`. There is no maintainer-operated AI server, analytics or cloud synchronization. Local data is not encrypted by this app. Keep private backups through **Settings → Backup → Export backup**.
 
 **Settings → Calendar settings** contains timezone, interface language (English for now), week numbers, the first day of the week, and public holidays. Holidays default from the timezone; select a country and region to override them, or choose None. Holiday rules are bundled locally and work offline. Local show days and one-off changes may not be included; holidays are reference labels and do not block goal scheduling.
 
@@ -72,7 +72,7 @@ To move from the browser prototype, export there and import the file in the desk
 
 ## Build from source
 
-Requirements: Windows x64 and Node.js 22 or newer.
+Requirements: Windows x64 and Node.js 22.13 or newer (with built-in SQLite).
 
 ```sh
 npm ci
@@ -101,7 +101,8 @@ Application code uses strict TypeScript: React components in `.tsx`, scheduling 
 | `src/Dialogs.tsx`, `src/ui.tsx` | Planning, settings, goal details and shared controls |
 | `src/calendar.ts`, `src/types.ts` | Scheduling, recurrence, recovery, backup validation and shared TypeScript contracts |
 | `src/styles.css` | Calendar layout, colours and responsive styles |
-| `server/chatgpt.ts` | Local ChatGPT sign-in and AI planning service |
+| `server/chatgpt.ts`, `server/calendar-assistant.ts` | Local ChatGPT sign-in, structured assistant responses, history retrieval and reviewed replanning |
+| `server/calendar-store.ts`, `src/calendarStorage.ts` | SQLite persistence, browser-data migration, save queue and revision checks |
 | `desktop/` | Electron startup, private local server, preload and external-link policy |
 | `tests/` | Scheduling, backup, desktop security and hosting regression checks |
 

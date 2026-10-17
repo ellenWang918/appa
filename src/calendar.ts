@@ -11,6 +11,7 @@ import type {
   Slot,
   Task,
   TaskEdit,
+  CalendarMove,
 } from "./types.js";
 import {
   DEFAULT_CALENDAR_PREFERENCES,
@@ -27,7 +28,60 @@ import {
   virtualEventsForDate,
 } from "./eventRepeat.js";
 
-export const COLORS: GoalColor[] = ["indigo", "teal", "amber", "rose"];
+export const COLORS: GoalColor[] = [
+  "indigo",
+  "slate",
+  "amber",
+  "rose",
+  "clay",
+  "teal",
+];
+export function personalCalendarFor(state: CalendarState) {
+  return state.personalCalendar === undefined
+    ? { name: "Personal tasks", color: "slate" as GoalColor, visible: true }
+    : state.personalCalendar;
+}
+export function editPersonalCalendar(
+  state: CalendarState,
+  name: string,
+  color: GoalColor,
+) {
+  const group = personalCalendarFor(state);
+  if (!group) throw new Error("This calendar is no longer available.");
+  if (!name.trim() || name.trim().length > 120)
+    throw new Error("Enter a calendar name of 1–120 characters.");
+  if (!COLORS.includes(color))
+    throw new Error("Choose a valid calendar colour.");
+  const next = copy(state);
+  next.personalCalendar = { ...group, name: name.trim(), color };
+  return commit(state, next, "Calendar updated");
+}
+export function togglePersonalCalendar(state: CalendarState) {
+  const group = personalCalendarFor(state);
+  if (!group) return state;
+  return { ...state, personalCalendar: { ...group, visible: !group.visible } };
+}
+export function deletePersonalCalendar(state: CalendarState) {
+  const next = copy(state);
+  const ids = new Set(
+    next.tasks.filter((task) => task.goalId === null).map((task) => task.id),
+  );
+  next.tasks = next.tasks.filter((task) => task.goalId !== null);
+  next.eventSeries = [];
+  next.personalCalendar = null;
+  for (const [key, value] of Object.entries(next.choices))
+    if (ids.has(value)) delete next.choices[key];
+  return commit(state, next, "Calendar deleted");
+}
+export function calendarDisplayState(state: CalendarState): CalendarState {
+  return personalCalendarFor(state)?.visible === false
+    ? {
+        ...state,
+        tasks: state.tasks.filter((task) => task.goalId !== null),
+        eventSeries: [],
+      }
+    : state;
+}
 export const availableHours = (settings: Settings) =>
   settings.useAvailableTime === false
     ? { start: 0, end: 1440 }
@@ -200,6 +254,15 @@ export const isBlocked = (state: CalendarState, task: Task) =>
   );
 export const goalFor = (state: CalendarState, task: Task) =>
   state.goals.find((g) => g.id === task.goalId);
+export function slotGoalColor(state: CalendarState, slot: Slot) {
+  if (slot.tasks.every((task) => task.goalId === null))
+    return personalCalendarFor(state)?.color;
+  if (slot.chosen) return goalFor(state, slot.chosen)?.color;
+  const goalId = slot.tasks[0]?.goalId;
+  if (goalId == null || slot.tasks.some((task) => task.goalId !== goalId))
+    return undefined;
+  return goalFor(state, slot.tasks[0])?.color;
+}
 export function slotsFor(
   state: CalendarState,
   date: string,
@@ -409,6 +472,65 @@ function commit(before: CalendarState, after: CalendarState, label: string) {
   after.undo = { label, before: snapshot(before), revision: after.revision };
   return after;
 }
+export function applyCalendarMoves(
+  state: CalendarState,
+  moves: CalendarMove[],
+  today = localDate(state.settings.timezone),
+) {
+  if (
+    !moves.length ||
+    moves.length > 100 ||
+    new Set(moves.map((move) => move.id)).size !== moves.length
+  )
+    throw new Error("Choose 1–100 distinct calendar entries to move.");
+  const next = copy(state);
+  for (const move of moves) {
+    const task = materializeTask(next, move.id);
+    if (
+      !task ||
+      task.status !== "pending" ||
+      (task.goalId !== null && goalFor(next, task)?.status !== "active")
+    )
+      throw new Error("Only pending calendar entries can be moved.");
+    if (
+      task.date !== move.fromDate ||
+      task.start !== move.fromStart ||
+      task.minutes !== move.minutes ||
+      !!task.allDay !== move.allDay
+    )
+      throw new Error("The calendar changed. Ask Appa for a fresh proposal.");
+    if (
+      !validDate(move.toDate) ||
+      move.toDate < today ||
+      !Number.isInteger(move.toStart) ||
+      move.toStart < 0 ||
+      move.toStart + task.minutes > 1440 ||
+      (task.allDay && move.toStart !== 0)
+    )
+      throw new Error("Choose a valid future date and time for each entry.");
+    if (
+      task.goalId !== null &&
+      (move.toStart < availableHours(next.settings).start ||
+        move.toStart + task.minutes > availableHours(next.settings).end)
+    )
+      throw new Error("Goal tasks must stay within your available hours.");
+    for (const [key, id] of Object.entries(next.choices))
+      if (id === task.id) delete next.choices[key];
+    task.date = move.toDate;
+    task.start = move.toStart;
+    task.slotId = id();
+  }
+  for (const task of next.tasks.filter((item) => item.status === "pending"))
+    for (const dependency of task.dependsOn) {
+      const before = next.tasks.find((item) => item.id === dependency);
+      if (before?.status === "pending" && before.date >= task.date)
+        throw new Error(
+          "Keep unfinished prerequisites on earlier dates than their dependent steps. Include the dependent steps or choose another date range.",
+        );
+    }
+  validateBackup(next, today);
+  return commit(state, next, "Calendar replanned");
+}
 export function editTask(
   state: CalendarState,
   taskId: string,
@@ -525,8 +647,7 @@ function validateEvent(
     event.title.trim().length > 180
   )
     throw new Error("Enter an event name of 1–180 characters.");
-  if (!validDate(event.date) || event.date < today)
-    throw new Error("Choose today or a future date.");
+  if (!validDate(event.date)) throw new Error("Choose a valid date.");
   if (event.allDay !== undefined && typeof event.allDay !== "boolean")
     throw new Error("Choose whether this event is all day.");
   if (
@@ -720,6 +841,12 @@ export function createEvent(
     event = { ...event, title: "New event" };
   validateEvent(state, event, today);
   const next = copy(state);
+  if (!personalCalendarFor(next))
+    next.personalCalendar = {
+      name: "Personal tasks",
+      color: "slate",
+      visible: true,
+    };
   const task: Task = {
     ...eventDetails(event),
     id: id(),
@@ -752,7 +879,7 @@ export function removeEvent(state: CalendarState, eventId: string) {
   )
     series.excludedDates.push(event.eventOccurrenceDate);
   delete next.choices[`${event.date}/${event.slotId}`];
-  return commit(state, next, "Event removed");
+  return commit(state, next, "Event deleted");
 }
 export function selectChoice(
   state: CalendarState,
@@ -1017,6 +1144,33 @@ export function approvePlan(
   next.sample = false;
   return commit(state, next, later ? "Saved in Later" : "Plan approved");
 }
+export function deleteGoal(
+  state: CalendarState,
+  goalId: string,
+  today = localDate(state.settings.timezone),
+) {
+  if (!state.goals.some((goal) => goal.id === goalId))
+    throw new Error("This goal is no longer available.");
+  const next = copy(state);
+  const removedIds = new Set(
+    next.tasks.filter((task) => task.goalId === goalId).map((task) => task.id),
+  );
+  next.goals = next.goals.filter((goal) => goal.id !== goalId);
+  next.tasks = next.tasks.filter((task) => !removedIds.has(task.id));
+  for (const task of next.tasks)
+    task.dependsOn = task.dependsOn.filter((key) => !removedIds.has(key));
+  for (const [key, taskId] of Object.entries(next.choices))
+    if (removedIds.has(taskId)) delete next.choices[key];
+  try {
+    validateBackup(next, today);
+  } catch {
+    throw new Error(
+      "This goal could not be deleted because a remaining shared reservation would conflict. Move the other activity to a free time, then try again.",
+    );
+  }
+  return commit(state, next, "Goal deleted");
+}
+
 export function editGoal(
   state: CalendarState,
   goalId: string,
@@ -1027,6 +1181,8 @@ export function editGoal(
   const goal = next.goals.find((item) => item.id === goalId);
   if (!goal || goal.status !== "active")
     throw new Error("Only active goals can be edited.");
+  if (edit.color !== undefined && !COLORS.includes(edit.color))
+    throw new Error("Choose a valid goal colour.");
   if (
     typeof edit.name !== "string" ||
     !edit.name.trim() ||
@@ -1093,6 +1249,7 @@ export function editGoal(
     };
   });
   goal.name = edit.name.trim();
+  if (edit.color !== undefined) goal.color = edit.color;
   const wasRecurring = !!goal.recurrence;
   const templates = steps.map(({ title, minutes }) => ({ title, minutes }));
   const recurringUnchanged =
@@ -1601,7 +1758,20 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
   }
   tasks.forEach(visit);
   const draft = validDraft(raw.draft) ? copy(raw.draft) : null;
+  if (
+    raw.personalCalendar !== undefined &&
+    raw.personalCalendar !== null &&
+    (typeof raw.personalCalendar.name !== "string" ||
+      !raw.personalCalendar.name.trim() ||
+      raw.personalCalendar.name.length > 120 ||
+      !COLORS.includes(raw.personalCalendar.color) ||
+      typeof raw.personalCalendar.visible !== "boolean")
+  )
+    throw new Error("The backup contains an invalid calendar group.");
   const next: CalendarState = {
+    ...(raw.personalCalendar !== undefined
+      ? { personalCalendar: copy(raw.personalCalendar) }
+      : {}),
     version: 1,
     revision: Number.isInteger(raw.revision) ? raw.revision : 0,
     sample: !!raw.sample,

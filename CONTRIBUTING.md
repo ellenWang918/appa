@@ -6,7 +6,7 @@ Use GitHub Issues for reproducible bugs or a small feature proposal. Include the
 
 ## Develop
 
-Install Node.js 22 or newer, then:
+Install Node.js 22.13 or newer (with built-in SQLite), then:
 
 ```sh
 npm ci
