@@ -1,4 +1,4 @@
-export type GoalColor = "indigo" | "teal" | "amber" | "rose";
+export type GoalColor = "indigo" | "teal" | "amber" | "rose" | "slate" | "clay";
 export type TaskStatus = "pending" | "done" | "skipped" | "consolidated";
 export type EventRepeat =
   "daily" | "weekly" | "fortnightly" | "monthly" | "yearly";
@@ -52,6 +52,10 @@ export interface PlannerDraft {
   intention: string;
   plan: Plan | null;
 }
+export interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+}
 export interface Recurrence {
   perWeek: number;
   anchor: string;
@@ -103,6 +107,7 @@ export interface EventDraft extends TaskEdit {
   reservationAllDay: boolean;
 }
 export interface GoalEdit {
+  color?: GoalColor;
   name: string;
   kind: "project" | "recurring";
   perWeek: number | null;
@@ -116,6 +121,11 @@ export interface RecoveryChange {
   status: TaskStatus;
 }
 export interface CalendarState {
+  personalCalendar?: {
+    name: string;
+    color: GoalColor;
+    visible: boolean;
+  } | null;
   version: 1;
   revision: number;
   sample: boolean;
@@ -148,6 +158,7 @@ export interface Model {
   name: string;
 }
 export interface SessionResponse {
+  storage?: "sqlite";
   csrf: string;
   connected: boolean;
   account: Account | null;
@@ -158,6 +169,25 @@ export interface SessionResponse {
   signOutPending?: boolean;
 }
 export interface ApiRequests {
+  "calendar/bootstrap": {
+    scope: string;
+    legacy: unknown;
+    legacyError?: boolean;
+    legacyBackup?: string;
+  };
+  "calendar/save": {
+    scope: string;
+    state: CalendarState;
+    expectedVersion: number;
+  };
+  assistant: {
+    scope: string;
+    messages: ChatMessage[];
+    message: string;
+    model?: string;
+  };
+  "calendar/preview": { scope: string; selectionId: string; ids: string[] };
+  "calendar/apply": { scope: string; proposalId: string };
   session: undefined;
   models: undefined;
   "auth/start": { accountId: string | null };
@@ -165,9 +195,68 @@ export interface ApiRequests {
   plan: { intention: string; model?: string };
 }
 export interface ApiResponses {
+  "calendar/bootstrap": StoredCalendar;
+  "calendar/save": StoredCalendar;
+  assistant: AssistantResult;
+  "calendar/preview": AssistantResult;
+  "calendar/apply": StoredCalendar;
   session: SessionResponse;
   models: { models: Model[] };
   "auth/start": { url: string };
   "auth/disconnect": { revoked: boolean; notice?: string };
   plan: { plan: Plan };
+}
+
+export interface StoredCalendar {
+  state: CalendarState | null;
+  storageVersion: number;
+  needsRecovery?: boolean;
+}
+export interface CalendarReference {
+  id: string;
+  title: string;
+  date: string;
+  start: number;
+  minutes: number;
+  allDay?: boolean;
+  status: TaskStatus;
+  goalName: string | null;
+  recurring: boolean;
+}
+export interface CalendarMove {
+  id: string;
+  title: string;
+  fromDate: string;
+  fromStart: number;
+  toDate: string;
+  toStart: number;
+  minutes: number;
+  allDay: boolean;
+}
+export interface CalendarQuery {
+  terms: string[];
+  from: string;
+  to: string;
+  start: number;
+  end: number;
+  operation: "agenda" | "last" | "count" | "availability";
+  completedOnly: boolean;
+}
+export interface AssistantIntent {
+  kind: "clarify" | "goal" | "event" | "search" | "reschedule";
+  message: string;
+  query: CalendarQuery;
+  plan: Plan | null;
+  event: TaskEdit | null;
+  destination: { from: string; to: string; start: number; end: number };
+}
+export interface AssistantResult {
+  kind: "clarify" | "goal" | "event" | "answer" | "selection" | "proposal";
+  message: string;
+  references: CalendarReference[];
+  plan?: Plan;
+  event?: TaskEdit;
+  selectionId?: string;
+  proposalId?: string;
+  moves?: CalendarMove[];
 }

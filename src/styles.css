@@ -1895,16 +1895,6 @@ input[type="date"] {
 .calendar-event.shared {
   background: #eeeeef;
 }
-.calendar-event.amber:not(.selected) {
-  background-color: #fbfbfc;
-  background-image: url("/assets/calendar-personal-pattern.png");
-  background-size: 32px 32px;
-}
-.dot.amber {
-  background: #f7f7f8 url("/assets/calendar-personal-pattern.png") center / 16px
-    16px;
-  box-shadow: inset 0 0 0 1px #e7e7e9;
-}
 .calendar-event.selected {
   border-color: #6b6b71;
   background: #fff;
@@ -2616,6 +2606,21 @@ input[type="date"] {
 .undo-toast button {
   color: #ededf0;
 }
+.undo-toast .toast-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0;
+  text-decoration: none;
+  border-radius: 4px;
+}
+.undo-toast .toast-dismiss:hover {
+  background: #ffffff1a;
+}
 .dialog {
   color: var(--ink);
   background: #fff;
@@ -2936,4 +2941,472 @@ input[type="date"] {
       border-color 0.15s,
       box-shadow 0.15s;
   }
+}
+
+/* Action footers retain readable controls at narrow widths. */
+.dialog-actions {
+  flex-wrap: wrap;
+}
+.dialog-actions > button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+/* Goal identity is scoped independently of Appa's neutral control colours.
+   Legacy saved keys remain valid: indigo = sage, rose = dusty plum. */
+[data-goal-color="indigo"] {
+  --goal-accent: #3f704d;
+  --goal-surface: #e5f0df;
+}
+[data-goal-color="slate"] {
+  --goal-accent: #365e9d;
+  --goal-surface: #e5edfc;
+}
+[data-goal-color="amber"] {
+  --goal-accent: #85610c;
+  --goal-surface: #faf0cd;
+}
+[data-goal-color="rose"] {
+  --goal-accent: #79549b;
+  --goal-surface: #f1e5fa;
+}
+[data-goal-color="clay"] {
+  --goal-accent: #a1532d;
+  --goal-surface: #fbe7da;
+}
+[data-goal-color="teal"] {
+  --goal-accent: #226e78;
+  --goal-surface: #dff3f2;
+}
+.dot[data-goal-color] {
+  background: var(--goal-accent);
+  box-shadow: none;
+}
+.calendar-event[data-goal-color],
+.month-task[data-goal-color] {
+  background: var(--goal-surface);
+  border-left: 3px solid var(--goal-accent);
+  color: var(--ink);
+}
+.calendar-event[data-goal-color].selected {
+  background: var(--goal-surface);
+  border-color: #6b6b71;
+  border-left-color: var(--goal-accent);
+}
+.task-card[data-goal-color] {
+  border-left: 3px solid var(--goal-accent);
+}
+
+.goal-colour-picker {
+  border: 0;
+  padding: 0;
+  margin: 0 0 20px;
+  min-width: 0;
+}
+.goal-colour-picker legend {
+  font-size: var(--text-body);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.goal-colour-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.goal-colour-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: var(--text-body);
+  cursor: pointer;
+}
+.goal-colour-options label:has(input:checked) {
+  background: var(--goal-surface);
+  border-color: var(--goal-accent);
+}
+.goal-colour-options label:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.goal-colour-options input {
+  margin: 0;
+  accent-color: var(--goal-accent);
+}
+.goal-colour-swatch {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--goal-accent);
+}
+
+.personal-calendar {
+  margin-bottom: 24px;
+}
+
+.calendar-group-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  width: 100%;
+}
+.calendar-group-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: var(--text-body);
+}
+.calendar-group-label > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-visibility,
+.calendar-colour-trigger {
+  appearance: none;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--goal-accent);
+  border-radius: 4px;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.calendar-visibility:checked,
+.calendar-colour-trigger {
+  background: var(--goal-accent);
+}
+.calendar-visibility:checked::after {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 7px;
+  border: solid white;
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(4px, 1px) rotate(45deg);
+}
+.calendar-group-menu-trigger,
+.calendar-inline-action {
+  width: 24px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 4px;
+}
+.calendar-group-menu-trigger {
+  opacity: 0;
+}
+.calendar-group-row:hover .calendar-group-menu-trigger,
+.calendar-group-row:focus-within .calendar-group-menu-trigger,
+.calendar-group-menu-trigger[aria-expanded="true"] {
+  opacity: 1;
+}
+.calendar-group-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 25;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  min-width: 170px;
+  box-shadow: 0 6px 24px #00000012;
+}
+.calendar-group-menu > button {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+}
+.calendar-name-input {
+  min-width: 0;
+  width: 100%;
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px;
+  font-size: var(--text-body);
+}
+.calendar-inline-editor {
+  position: relative;
+}
+.calendar-colour-palette {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 26;
+  width: max-content;
+  max-width: calc(100vw - 40px);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  padding: 12px;
+  margin: 4px 0 0;
+  box-shadow: 0 6px 24px #00000012;
+}
+.calendar-colour-palette legend {
+  float: left;
+  width: 100%;
+  font-size: var(--text-caption);
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.calendar-colour-palette > div {
+  display: flex;
+  gap: 12px;
+  clear: both;
+}
+.calendar-colour-palette label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+.calendar-colour-palette input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.calendar-colour-palette span {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--goal-accent);
+  pointer-events: none;
+}
+.calendar-colour-palette label:has(input:checked) {
+  outline: 2px solid var(--goal-accent);
+  border-radius: 50%;
+}
+.calendar-colour-palette label:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+.all-day-event[data-goal-color] {
+  background: var(--goal-surface);
+  border-left: 3px solid var(--goal-accent);
+}
+@media (hover: none) {
+  .calendar-group-menu-trigger {
+    opacity: 1;
+  }
+}
+
+.agenda-card[data-goal-color] {
+  background: var(--goal-surface);
+  border-left-color: var(--goal-accent);
+}
+
+/* The chat body expands above the same compact, bottom-anchored input. */
+.floating-chat {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 64px));
+  max-height: calc(100% - 32px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #e7e7ea;
+  border-radius: 14px;
+  box-shadow: 0 9px 30px #0000000c;
+  z-index: 4;
+}
+.floating-chat.active {
+  height: 400px;
+  border-radius: 8px;
+}
+.floating-chat-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.floating-chat-body[hidden] {
+  display: none;
+}
+.floating-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 14px 8px;
+  flex: none;
+}
+.floating-chat-header h2 {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  margin: 0;
+}
+.floating-chat-conversation {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.floating-chat-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: 100%;
+  min-width: 0;
+}
+.floating-chat-message > div {
+  min-width: 0;
+  padding: 7px 9px;
+  background: #f7f7f9;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: var(--text-body);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.floating-chat-message.user {
+  align-self: flex-end;
+  max-width: 85%;
+}
+.floating-chat-message.user > div {
+  background: #f0f0f3;
+}
+.floating-chat-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 5px;
+  background: #f7f7f9;
+}
+.floating-chat-conversation > .text-button {
+  align-self: flex-start;
+}
+.floating-chat-manual {
+  font-size: var(--text-caption);
+}
+.floating-chat .planning-composer {
+  position: static;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: 100%;
+  min-height: 48px;
+  flex: none;
+  margin: 0;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+  padding: 7px 8px 7px 14px;
+}
+.floating-chat.active .planning-composer {
+  border-top: 1px solid #e7e7ea;
+  border-radius: 0 0 8px 8px;
+}
+.floating-chat:focus-within {
+  border-color: #bdbdc3;
+}
+@media (max-width: 1050px) {
+  .floating-chat {
+    width: min(560px, calc(100% - 34px));
+  }
+}
+@media (max-width: 600px) {
+  .floating-chat {
+    width: calc(100% - 28px);
+    bottom: 12px;
+  }
+}
+
+.startup-status {
+  margin: 48px auto;
+  padding: 24px;
+  max-width: 640px;
+}
+.startup-status button {
+  margin-right: 12px;
+}
+.chat-calendar-selection {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+.chat-calendar-selection legend {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.chat-calendar-selection label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-block: 6px;
+  font-size: var(--text-body);
+}
+.chat-calendar-selection input {
+  flex: none;
+  margin-top: 3px;
+}
+.chat-calendar-selection small,
+.chat-move-proposal li > span,
+.chat-event-proposal > span {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+.chat-move-proposal ul {
+  padding-left: 16px;
+  margin: 0 0 12px;
+}
+.chat-move-proposal li {
+  padding-block: 5px;
+  font-size: var(--text-body);
+  overflow-wrap: anywhere;
+}
+.chat-move-proposal > button {
+  margin-right: 10px;
+}
+.chat-event-proposal {
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.chat-event-proposal button {
+  justify-self: start;
+}
+.chat-event-references {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.chat-event-references button {
+  text-align: left;
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
 }

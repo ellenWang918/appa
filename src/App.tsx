@@ -1,3 +1,15 @@
+import { api } from "./api";
+import {
+  initializeCalendarStorage,
+  saveCalendar,
+  acceptStoredCalendar,
+  flushCalendar,
+  storageScope,
+} from "./calendarStorage";
+import { FloatingChat } from "./FloatingChat";
+import { CalendarSection } from "./CalendarSection";
+import { calendarReplacementIsHighImpact } from "./actionPatterns";
+import { ActionGuard, useActionGuard } from "./ActionGuard";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
@@ -19,7 +31,6 @@ import type { CalendarState, EventDraft, Slot, Task, TaskEdit } from "./types";
 import { errorMessage } from "./errors";
 import {
   ArrowRight,
-  ArrowUp,
   CalendarDots,
   CaretLeft,
   CaretRight,
@@ -37,6 +48,7 @@ import * as cal from "./calendar";
 import { Planner, Settings, GoalDetails } from "./Dialogs";
 import { Dialog, Dot, IconButton } from "./ui";
 import { TaskCard } from "./TaskCard";
+import { Toast } from "./Toast";
 import { EventCreator } from "./EventCreator";
 import { desktop } from "./environment";
 import "@fontsource/inter/400.css";
@@ -101,8 +113,77 @@ const titleDate = (date: string, language = "en-AU") =>
   );
 
 export function App() {
-  const [initial] = useState(load),
-    [state, setState] = useState(initial.state),
+  const [initial, setInitial] = useState<ReturnType<typeof load> | null>(null);
+  const [startupError, setStartupError] = useState("");
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const legacy = load();
+    let legacyBackup: string | undefined;
+    try {
+      legacyBackup = localStorage.getItem(STORAGE) ?? undefined;
+    } catch {
+      /* Recovery remains read-only. */
+    }
+    setStartupError("");
+    void initializeCalendarStorage(
+      referenceMode ? "reference" : "main",
+      legacy.state,
+      !!legacy.error,
+      legacyBackup,
+    )
+      .then((result) => {
+        if (!cancelled)
+          setInitial({
+            state: result.state ?? legacy.state,
+            error: result.needsRecovery
+              ? legacy.error ||
+                "Your saved calendar could not be read. Import a backup or start fresh."
+              : "",
+          });
+      })
+      .catch((error) => {
+        if (!cancelled) setStartupError(errorMessage(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [retry]);
+  if (!initial)
+    return (
+      <div className="startup-status" role={startupError ? "alert" : "status"}>
+        <p>{startupError || "Opening your calendar…"}</p>
+        {startupError && (
+          <>
+            <button
+              className="secondary"
+              onClick={() => setRetry((value) => value + 1)}
+            >
+              Try again
+            </button>
+            <button
+              className="text-button"
+              onClick={() => download(localStorage.getItem(STORAGE) || "{}")}
+            >
+              Export previous browser data
+            </button>
+          </>
+        )}
+      </div>
+    );
+  return (
+    <ActionGuard>
+      <AppContent initial={initial} />
+    </ActionGuard>
+  );
+}
+
+function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
+  const guard = useActionGuard();
+  const applyingRef = useRef(false);
+  const [calendarApplying, setCalendarApplying] = useState(false);
+  const [destructiveName, setDestructiveName] = useState("");
+  const [state, setState] = useState(initial.state),
     [saveError, setSaveError] = useState(initial.error),
     [error, setError] = useState(""),
     [view, setView] = useState<CalendarView>("week"),
@@ -115,7 +196,6 @@ export function App() {
     [monthScrollRequest, setMonthScrollRequest] = useState(0),
     [detailsOpen, setDetailsOpen] = useState(false),
     [taskAnchor, setTaskAnchor] = useState<HTMLElement | null>(null),
-    [composer, setComposer] = useState(""),
     [eventDraft, setEventDraft] = useState<EventDraft | null>(null),
     [eventAnchor, setEventAnchor] = useState<HTMLElement | null>(null),
     [week, setWeek] = useState(() =>
@@ -169,17 +249,21 @@ export function App() {
   }, [state]);
   useEffect(() => {
     if (persistBlocked) return;
-    try {
-      localStorage.setItem(STORAGE, JSON.stringify(state));
-      setSaveError("");
-    } catch {
-      setSaveError(
-        "Changes could not be saved. Export a backup to keep your progress.",
-      );
-    }
+    let cancelled = false;
+    void saveCalendar(state)
+      .then(() => {
+        if (!cancelled) setSaveError("");
+      })
+      .catch((error) => {
+        if (!cancelled) setSaveError(errorMessage(error));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [state, persistBlocked]);
   useEffect(() => {
     function refresh() {
+      if (applyingRef.current) return;
       const now = new Date(),
         date = dayFor(state.settings.timezone, now),
         minute = referenceMode
@@ -265,11 +349,12 @@ export function App() {
       ((minute - 60) / (24 * 60)) * timeGrid.current.clientHeight,
     );
   }, [timelineDate, view, state.settings.timezone, scrollToNowRequest]);
+  const displayState = cal.calendarDisplayState(state);
   const daySlots = [
-      ...cal.allDaySlotsFor(state, selectedDay),
-      ...cal.slotsFor(state, selectedDay),
+      ...cal.allDaySlotsFor(displayState, selectedDay),
+      ...cal.slotsFor(displayState, selectedDay),
     ],
-    plannedMinutes = cal.plannedMinutesFor(state, selectedDay);
+    plannedMinutes = cal.plannedMinutesFor(displayState, selectedDay);
   const goal = state.goals.find((item) => item.id === goalId);
   const cardTask = selectedTask ? cal.taskFor(state, selectedTask) : undefined;
   const complete = (task: Task) =>
@@ -277,27 +362,41 @@ export function App() {
       (previous) => cal.completeTask(previous, task.id, today),
       "Progress saved.",
     );
+  function openModal(next: Exclude<typeof modal, null>) {
+    guard.request(() => {
+      setEventDraft(null);
+      setDetailsOpen(false);
+      setDestructiveName("");
+      setModal(next);
+    });
+  }
   function goToday() {
-    setEventDraft(null);
-    setDetailsOpen(false);
-    setSelectedDay(today);
-    setWeek(cal.weekStart(today, state.settings.weekStartsOn));
-    setMiniMonth(monthStart(today));
-    setVisibleMonth(monthStart(today));
-    setMonthScrollRequest((request) => request + 1);
-    setSelectedTask(null);
-    setScrollToNowRequest((request) => request + 1);
+    guard.request(() => {
+      setEventDraft(null);
+      setDetailsOpen(false);
+      setSelectedDay(today);
+      setWeek(cal.weekStart(today, state.settings.weekStartsOn));
+      setMiniMonth(monthStart(today));
+      setVisibleMonth(monthStart(today));
+      setMonthScrollRequest((request) => request + 1);
+      setSelectedTask(null);
+      setScrollToNowRequest((request) => request + 1);
+    });
   }
   function selectDate(date: string, discardEventDraft = true) {
-    if (discardEventDraft) setEventDraft(null);
-    setDetailsOpen(false);
-    setSelectedDay(date);
-    setWeek(cal.weekStart(date, state.settings.weekStartsOn));
-    setMiniMonth(monthStart(date));
-    setVisibleMonth(monthStart(date));
-    if (view === "month" || view === "year")
-      setMonthScrollRequest((request) => request + 1);
-    setSelectedTask(null);
+    const action = () => {
+      if (discardEventDraft) setEventDraft(null);
+      setDetailsOpen(false);
+      setSelectedDay(date);
+      setWeek(cal.weekStart(date, state.settings.weekStartsOn));
+      setMiniMonth(monthStart(date));
+      setVisibleMonth(monthStart(date));
+      if (view === "month" || view === "year")
+        setMonthScrollRequest((request) => request + 1);
+      setSelectedTask(null);
+    };
+    if (discardEventDraft) guard.request(action);
+    else guard.run(action);
   }
   function navigate(direction: number) {
     const date =
@@ -312,10 +411,12 @@ export function App() {
     selectDate(date);
   }
   function openSlot(slot: Slot, anchor: HTMLElement) {
-    setTaskAnchor(anchor);
-    selectDate(slot.date);
-    setSelectedTask(slot.chosen?.id || slot.tasks[0].id);
-    setDetailsOpen(true);
+    guard.request(() => {
+      setTaskAnchor(anchor);
+      selectDate(slot.date);
+      setSelectedTask(slot.chosen?.id || slot.tasks[0].id);
+      setDetailsOpen(true);
+    });
   }
   function openEvent(
     date = selectedDay,
@@ -323,34 +424,38 @@ export function App() {
     trigger?: HTMLElement,
     allDay = false,
   ) {
-    setDetailsOpen(false);
-    setModal(null);
-    const eventDate = date < today ? today : date;
-    const eventStart = Math.max(
-      0,
-      Math.min(
-        1435,
-        start ??
-          (eventDate === today ? Math.ceil(currentMinute / 30) * 30 : 540),
-      ),
-    );
-    selectDate(eventDate);
-    if (view === "year") setView("day");
-    eventTrigger.current = trigger ?? null;
-    setEventAnchor(null);
-    setEventDraft({
-      id: cal.id(),
-      title: "",
-      date: eventDate,
-      start: eventStart,
-      minutes: Math.min(30, 1440 - eventStart),
-      allDay,
-      reservationAllDay: allDay,
+    guard.request(() => {
+      setDetailsOpen(false);
+      setModal(null);
+      const eventDate = date;
+      const eventStart = Math.max(
+        0,
+        Math.min(
+          1435,
+          start ??
+            (eventDate === today ? Math.ceil(currentMinute / 30) * 30 : 540),
+        ),
+      );
+      selectDate(eventDate);
+      if (view === "year") setView("day");
+      eventTrigger.current = trigger ?? null;
+      setEventAnchor(null);
+      setEventDraft({
+        id: cal.id(),
+        title: "",
+        date: eventDate,
+        start: eventStart,
+        minutes: Math.min(30, 1440 - eventStart),
+        allDay,
+        reservationAllDay: allDay,
+      });
     });
   }
   function closeEvent(restoreFocus = false) {
-    setEventDraft(null);
-    if (restoreFocus) eventTrigger.current?.focus({ preventScroll: true });
+    guard.request(() => {
+      setEventDraft(null);
+      if (restoreFocus) eventTrigger.current?.focus({ preventScroll: true });
+    });
   }
   function updateEventDraft(changes: Partial<TaskEdit>) {
     if (changes.date && changes.date !== eventDraft?.date)
@@ -371,14 +476,19 @@ export function App() {
         referenceMode ? dayFor() : undefined,
       );
       setPendingImport(raw);
-      setModal("import");
+      setDestructiveName("");
+      openModal("import");
     } catch (caught) {
       setError(errorMessage(caught));
     }
   }
   return (
     <InterfaceLanguage language={state.settings.language}>
-      <div className="app-shell">
+      <div
+        className="app-shell"
+        inert={calendarApplying}
+        aria-busy={calendarApplying}
+      >
         <aside className="goals-rail" aria-label={t("Goals")}>
           <a
             className="brand"
@@ -409,6 +519,24 @@ export function App() {
             <Plus size={15} />
             {t("Create event")}
           </button>
+          <CalendarSection
+            key={`${cal.personalCalendarFor(state)?.name}/${cal.personalCalendarFor(state)?.color}`}
+            state={state}
+            onToggle={() => {
+              setState(cal.togglePersonalCalendar(state));
+              setDetailsOpen(false);
+            }}
+            onSave={(name, color) => {
+              setState(cal.editPersonalCalendar(state, name, color));
+              setNotice("Calendar updated.");
+            }}
+            onDelete={() => {
+              setState(cal.deletePersonalCalendar(state));
+              setNotice("Calendar deleted.");
+              setDetailsOpen(false);
+            }}
+            onBackup={() => download(state)}
+          />
           <div className="goal-group">
             <h2>{t("Active goals")}</h2>
             {active.length === 0 && (
@@ -422,7 +550,7 @@ export function App() {
                 className="goal-link"
                 onClick={() => {
                   setGoalId(item.id);
-                  setModal("goal");
+                  openModal("goal");
                 }}
               >
                 <Dot color={item.color} />
@@ -442,7 +570,7 @@ export function App() {
                   className="goal-link muted"
                   onClick={() => {
                     setGoalId(item.id);
-                    setModal("goal");
+                    openModal("goal");
                   }}
                 >
                   <Dot color="gray" />
@@ -454,7 +582,7 @@ export function App() {
           <div className="rail-footer">
             <button
               className="mobile-goals-button"
-              onClick={() => setModal("goals")}
+              onClick={() => openModal("goals")}
             >
               {t("Goals")}
             </button>
@@ -463,7 +591,7 @@ export function App() {
                 <span className="sample-label">{t("Example workspace")}</span>
                 <button
                   className="text-button"
-                  onClick={() => setModal("reset")}
+                  onClick={() => (setDestructiveName(""), openModal("reset"))}
                 >
                   {t("Start fresh")}
                 </button>
@@ -471,7 +599,7 @@ export function App() {
             )}
             <button
               className="settings-button"
-              onClick={() => setModal("settings")}
+              onClick={() => openModal("settings")}
             >
               <GearSix size={17} />
               {t("Settings")}
@@ -509,14 +637,14 @@ export function App() {
               <IconButton
                 className="icon-button"
                 aria-label={t("Your goals")}
-                onClick={() => setModal("goals")}
+                onClick={() => openModal("goals")}
               >
                 <List size={18} />
               </IconButton>
               <IconButton
                 className="icon-button"
                 aria-label={t("Settings")}
-                onClick={() => setModal("settings")}
+                onClick={() => openModal("settings")}
               >
                 <GearSix size={18} />
               </IconButton>
@@ -576,17 +704,19 @@ export function App() {
                     key={mode}
                     className={view === mode ? "selected" : ""}
                     aria-pressed={view === mode}
-                    onClick={() => {
-                      setDetailsOpen(false);
-                      setEventDraft(null);
-                      if (mode === "month" && view !== "month") {
-                        if (view === "year") selectDate(visibleMonth);
-                        else setVisibleMonth(monthStart(selectedDay));
-                      }
-                      if (mode === "year" && view === "month")
-                        selectDate(visibleMonth);
-                      setView(mode);
-                    }}
+                    onClick={() =>
+                      guard.request(() => {
+                        setDetailsOpen(false);
+                        setEventDraft(null);
+                        if (mode === "month" && view !== "month") {
+                          if (view === "year") selectDate(visibleMonth);
+                          else setVisibleMonth(monthStart(selectedDay));
+                        }
+                        if (mode === "year" && view === "month")
+                          selectDate(visibleMonth);
+                        setView(mode);
+                      })
+                    }
                   >
                     {mode === "day"
                       ? t("Day")
@@ -613,7 +743,11 @@ export function App() {
                   onClick={() => {
                     if (!persistBlocked) return download(state);
                     try {
-                      download(localStorage.getItem(STORAGE) || state);
+                      download(
+                        persistBlocked
+                          ? localStorage.getItem(STORAGE) || state
+                          : state,
+                      );
                     } catch {
                       download(state);
                     }
@@ -623,7 +757,9 @@ export function App() {
                 </button>
               )}
               {persistBlocked && (
-                <button onClick={() => setModal("reset")}>
+                <button
+                  onClick={() => (setDestructiveName(""), openModal("reset"))}
+                >
                   {t("Start fresh")}
                 </button>
               )}
@@ -644,7 +780,7 @@ export function App() {
                 {state.recovery.consolidated}{" "}
                 {t("older repeats. Project steps stay in order.")}
               </span>
-              <button onClick={() => setModal("recovery")}>
+              <button onClick={() => openModal("recovery")}>
                 {t("Review changes")}
               </button>
               {state.undo?.label === "Recovery" && (
@@ -670,7 +806,7 @@ export function App() {
               {view === "week" ? (
                 <CalendarTimeline
                   dates={days}
-                  state={state}
+                  state={displayState}
                   selectedDay={selectedDay}
                   selectedTask={selectedTask}
                   today={today}
@@ -687,14 +823,16 @@ export function App() {
               ) : view === "month" ? (
                 <MonthCalendar
                   month={monthStart(selectedDay)}
-                  state={state}
+                  state={displayState}
                   selectedDay={selectedDay}
                   today={today}
                   holidays={holidays}
-                  onSelect={(date) => {
-                    selectDate(date);
-                    setView("day");
-                  }}
+                  onSelect={(date) =>
+                    guard.request(() => {
+                      selectDate(date);
+                      setView("day");
+                    })
+                  }
                   onSlot={openSlot}
                   onCreate={openEvent}
                   draft={eventDraft}
@@ -708,17 +846,21 @@ export function App() {
                   selectedDay={selectedDay}
                   scrollRequest={monthScrollRequest}
                   onVisibleYear={showVisibleYear}
-                  state={state}
+                  state={displayState}
                   today={today}
                   holidays={holidays}
-                  onMonth={(month) => {
-                    selectDate(month);
-                    setView("month");
-                  }}
-                  onSelect={(date) => {
-                    selectDate(date);
-                    setView("day");
-                  }}
+                  onMonth={(month) =>
+                    guard.request(() => {
+                      selectDate(month);
+                      setView("month");
+                    })
+                  }
+                  onSelect={(date) =>
+                    guard.request(() => {
+                      selectDate(date);
+                      setView("day");
+                    })
+                  }
                 />
               ) : (
                 <div className="day-view" key="day">
@@ -768,7 +910,7 @@ export function App() {
                     <div className="day-timeline">
                       <CalendarTimeline
                         dates={[selectedDay]}
-                        state={state}
+                        state={displayState}
                         selectedDay={selectedDay}
                         selectedTask={selectedTask}
                         today={today}
@@ -806,6 +948,10 @@ export function App() {
                             return (
                               <li key={slot.id}>
                                 <button
+                                  data-goal-color={cal.slotGoalColor(
+                                    state,
+                                    slot,
+                                  )}
                                   className={[
                                     "agenda-card",
                                     cal.goalFor(state, task)?.color ?? "indigo",
@@ -866,7 +1012,7 @@ export function App() {
                       ) : (
                         <Empty
                           onCreate={() => openEvent()}
-                          onPlan={() => setModal("planner")}
+                          onPlan={() => openModal("planner")}
                           hasGoals={active.length > 0}
                         />
                       )}
@@ -874,36 +1020,74 @@ export function App() {
                   </ResizableDayPanels>
                 </div>
               )}
-              <form
-                className="planning-composer"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (composer.trim()) {
+              <FloatingChat
+                state={state}
+                onReference={(ref) =>
+                  guard.request(() => {
+                    if (
+                      cal.taskFor(state, ref.id)?.goalId === null &&
+                      cal.personalCalendarFor(state)?.visible === false
+                    )
+                      setState(cal.togglePersonalCalendar(state));
+                    selectDate(ref.date);
+                    setView("day");
+                    setTaskAnchor(null);
+                    setSelectedTask(ref.id);
+                    setDetailsOpen(true);
+                  })
+                }
+                onReviewEvent={(event) =>
+                  guard.request(() => {
+                    openEvent(
+                      event.date,
+                      event.start,
+                      undefined,
+                      !!event.allDay,
+                    );
+                    setEventDraft((draft) =>
+                      draft ? { ...draft, ...event } : draft,
+                    );
+                  })
+                }
+                onApply={async (proposalId) => {
+                  applyingRef.current = true;
+                  setCalendarApplying(true);
+                  try {
+                    await flushCalendar(latestState.current);
+                    const saved = await api("calendar/apply", {
+                      scope: storageScope(),
+                      proposalId,
+                    });
+                    if (!saved.state)
+                      throw new Error(
+                        "The calendar changes could not be loaded. Reopen Appa.",
+                      );
+                    acceptStoredCalendar(saved);
+                    latestState.current = saved.state;
+                    setState(saved.state);
+                    setNotice("Calendar replanned.");
+                  } finally {
+                    applyingRef.current = false;
+                    setCalendarApplying(false);
+                  }
+                }}
+                onActivate={(open) =>
+                  guard.request(() => {
+                    setEventDraft(null);
+                    setDetailsOpen(false);
+                    open();
+                  })
+                }
+                onReview={(plan, intention) =>
+                  guard.request(() => {
                     setState((previous) => ({
                       ...previous,
-                      draft: { intention: composer.trim(), plan: null },
+                      draft: { intention, plan },
                     }));
-                    setComposer("");
-                  }
-                  setModal("planner");
-                }}
-              >
-                <CalendarDots size={23} weight="fill" />
-                <input
-                  aria-label={t("Describe a goal")}
-                  value={composer}
-                  maxLength={3600}
-                  placeholder={t("Tell Appa what matters…")}
-                  onChange={(event) => setComposer(event.target.value)}
-                />
-                <IconButton
-                  showTooltip={false}
-                  aria-label={t("Plan this goal")}
-                  type="submit"
-                >
-                  <ArrowUp size={19} weight="bold" />
-                </IconButton>
-              </form>
+                    openModal("planner");
+                  })
+                }
+              />
             </main>
           </div>
         </div>
@@ -914,7 +1098,7 @@ export function App() {
             task={cardTask}
             anchor={taskAnchor}
             today={today}
-            onClose={() => setDetailsOpen(false)}
+            onClose={() => guard.request(() => setDetailsOpen(false))}
             onSave={(edit) => {
               const next = cal.editTask(state, cardTask.id, edit, today);
               setState(next);
@@ -924,7 +1108,7 @@ export function App() {
                   ? t("Event updated.")
                   : t("Task updated."),
               );
-              selectDate(edit.date);
+              guard.run(() => selectDate(edit.date));
               setSelectedTask(cardTask.id);
               setDetailsOpen(true);
             }}
@@ -932,16 +1116,18 @@ export function App() {
             onRemove={() => {
               change(
                 (previous) => cal.removeEvent(previous, cardTask.id),
-                t("Event removed."),
+                t("Event deleted."),
               );
               setDetailsOpen(false);
               setSelectedTask(null);
             }}
-            onTask={(task) => {
-              selectDate(task.date);
-              setSelectedTask(task.id);
-              setDetailsOpen(true);
-            }}
+            onTask={(task) =>
+              guard.request(() => {
+                selectDate(task.date);
+                setSelectedTask(task.id);
+                setDetailsOpen(true);
+              })
+            }
             onChoice={(task) => {
               change((previous) =>
                 cal.selectChoice(previous, task.date, task.slotId, task.id),
@@ -965,17 +1151,19 @@ export function App() {
               setState(next);
               setError("");
               setNotice(t("Event created."));
-              closeEvent(true);
-              selectDate(event.date);
+              guard.run(() => {
+                closeEvent(true);
+                selectDate(event.date);
+              });
             }}
           />
         )}
         {state.undo && state.undo.label !== "Recovery" && (
-          <div className="undo-toast" role="status">
-            <CheckCircle size={18} />
-            <span>{notice || state.undo.label}</span>
-            <button onClick={() => change(cal.undoChange)}>{t("Undo")}</button>
-          </div>
+          <Toast
+            key={state.undo.revision}
+            message={notice || state.undo.label}
+            onUndo={() => change(cal.undoChange)}
+          />
         )}
         <input
           ref={fileInput}
@@ -987,7 +1175,7 @@ export function App() {
         {modal === "recovery" && state.recovery && (
           <Dialog
             title={t("Your recovery summary")}
-            onClose={() => setModal(null)}
+            onClose={() => guard.request(() => setModal(null))}
           >
             <div className="dialog-body">
               <p className="muted">
@@ -1032,7 +1220,7 @@ export function App() {
         {modal === "planner" && (
           <Planner
             state={state}
-            onClose={() => setModal(null)}
+            onClose={() => guard.request(() => setModal(null))}
             onDraft={(draft) =>
               setState((previous) => ({ ...previous, draft }))
             }
@@ -1054,7 +1242,7 @@ export function App() {
         {modal === "settings" && (
           <Settings
             state={state}
-            onClose={() => setModal(null)}
+            onClose={() => guard.request(() => setModal(null))}
             onSave={(settings) => {
               setState(
                 cal.updateSettings(state, settings, dayFor(settings.timezone)),
@@ -1063,12 +1251,38 @@ export function App() {
               setNotice("Settings saved.");
             }}
             onExport={() => download(state)}
-            onImport={() => fileInput.current?.click()}
+            onImport={() =>
+              guard.request(() => {
+                setModal(null);
+                fileInput.current?.click();
+              })
+            }
           />
         )}
         {modal === "goals" && (
-          <Dialog title={t("Your goals")} onClose={() => setModal(null)}>
+          <Dialog
+            title={t("Your goals")}
+            onClose={() => guard.request(() => setModal(null))}
+          >
             <div className="dialog-body">
+              <CalendarSection
+                key={`${cal.personalCalendarFor(state)?.name}/${cal.personalCalendarFor(state)?.color}`}
+                state={state}
+                onToggle={() => {
+                  setState(cal.togglePersonalCalendar(state));
+                  setDetailsOpen(false);
+                }}
+                onSave={(name, color) => {
+                  setState(cal.editPersonalCalendar(state, name, color));
+                  setNotice("Calendar updated.");
+                }}
+                onDelete={() => {
+                  setState(cal.deletePersonalCalendar(state));
+                  setNotice("Calendar deleted.");
+                  setDetailsOpen(false);
+                }}
+                onBackup={() => download(state)}
+              />
               <h3>{t("Active goals")}</h3>
               {active.map((item) => (
                 <button
@@ -1076,7 +1290,7 @@ export function App() {
                   key={item.id}
                   onClick={() => {
                     setGoalId(item.id);
-                    setModal("goal");
+                    openModal("goal");
                   }}
                 >
                   <Dot color={item.color} />
@@ -1091,7 +1305,7 @@ export function App() {
                     key={item.id}
                     onClick={() => {
                       setGoalId(item.id);
-                      setModal("goal");
+                      openModal("goal");
                     }}
                   >
                     <Dot color="gray" />
@@ -1104,7 +1318,7 @@ export function App() {
               {state.sample && (
                 <button
                   className="text-button"
-                  onClick={() => setModal("reset")}
+                  onClick={() => (setDestructiveName(""), openModal("reset"))}
                 >
                   {t("Start fresh")}
                 </button>
@@ -1114,10 +1328,16 @@ export function App() {
         )}
         {modal === "goal" && goal && (
           <GoalDetails
+            onBackup={() => download(state)}
             key={goal.id}
             goal={goal}
             state={state}
-            onClose={() => setModal(null)}
+            onClose={() => guard.request(() => setModal(null))}
+            onDelete={() => {
+              setState(cal.deleteGoal(state, goal.id, today));
+              setModal(null);
+              setNotice("Goal deleted.");
+            }}
             onSave={(edit) => {
               setState(cal.editGoal(state, goal.id, edit, today));
               setNotice("Goal updated.");
@@ -1137,13 +1357,15 @@ export function App() {
         {modal === "import" && pendingImport && (
           <Dialog
             title={t("Restore this backup?")}
-            onClose={() => setModal(null)}
+            onClose={() => guard.request(() => setModal(null))}
           >
             <div className="dialog-body">
               <p>
                 {t("This backup contains")} {pendingImport.goals.length}{" "}
                 {t("goals and")} {pendingImport.tasks.length}{" "}
-                {t("tasks. It will replace the calendar in this browser.")}
+                {t(
+                  "tasks. It will replace all current goals, events, repeating series, history and choices on this device.",
+                )}
               </p>
               {!!pendingImport.eventSeries?.length && (
                 <p>
@@ -1153,14 +1375,35 @@ export function App() {
                 </p>
               )}
               <p className="muted">
-                {t("You can undo the import immediately afterward.")}
+                {t("Undo is available until your next change or reload.")}
               </p>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => download(state)}
+              >
+                {t("Export backup")}
+              </button>
+              {calendarReplacementIsHighImpact(state) && (
+                <label className="field">
+                  {t("Type {name} to confirm.", { name: "Appa" })}
+                  <input
+                    autoComplete="off"
+                    value={destructiveName}
+                    onChange={(event) => setDestructiveName(event.target.value)}
+                  />
+                </label>
+              )}
               <div className="dialog-actions">
                 <button className="secondary" onClick={() => setModal(null)}>
                   {t("Cancel")}
                 </button>
                 <button
                   className="primary danger-action"
+                  disabled={
+                    calendarReplacementIsHighImpact(state) &&
+                    destructiveName !== "Appa"
+                  }
                   data-action="destructive"
                   onClick={() => {
                     change(
@@ -1185,21 +1428,42 @@ export function App() {
         )}
         {modal === "reset" && (
           <Dialog
-            title={t("Start with a fresh calendar?")}
-            onClose={() => setModal(null)}
+            title={t("Clear this calendar?")}
+            onClose={() => guard.request(() => setModal(null))}
           >
             <div className="dialog-body">
               <p>
                 {t(
-                  "Remove the example goals and plan something of your own. You can undo this change.",
+                  "Clear all goals, events, repeating series, completed history and saved choices. Export a backup first if you want to keep them. Undo is available until your next change or reload.",
                 )}
               </p>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => download(state)}
+              >
+                {t("Export backup")}
+              </button>
+              {calendarReplacementIsHighImpact(state) && (
+                <label className="field">
+                  {t("Type {name} to confirm.", { name: "Appa" })}
+                  <input
+                    autoComplete="off"
+                    value={destructiveName}
+                    onChange={(event) => setDestructiveName(event.target.value)}
+                  />
+                </label>
+              )}
               <div className="dialog-actions">
                 <button className="secondary" onClick={() => setModal(null)}>
                   {t("Keep this calendar")}
                 </button>
                 <button
                   className="primary danger-action"
+                  disabled={
+                    calendarReplacementIsHighImpact(state) &&
+                    destructiveName !== "Appa"
+                  }
                   data-action="destructive"
                   onClick={() => {
                     change(
@@ -1210,7 +1474,7 @@ export function App() {
                     setModal(null);
                   }}
                 >
-                  {t("Remove example goals")}
+                  {t("Clear calendar")}
                 </button>
               </div>
             </div>

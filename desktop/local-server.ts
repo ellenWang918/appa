@@ -53,6 +53,7 @@ export async function startLocalApp({
   // Native OAuth returns from the user's system browser, which does not share
   // Electron's cookie jar. State, nonce and S256 PKCE bind that callback instead.
   const ai = createChatgptService({
+    calendarDirectory: dataRoot,
     requireCallbackCookie: false,
     requestFetch,
     credentialStore,

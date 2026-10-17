@@ -125,7 +125,9 @@ export function ChatgptSignIn({
           "Connect your own eligible Plus or Pro account. Your calendar stays",
         )}{" "}
         {localPlace}
-        {t(". Your goal text goes to OpenAI when you create a plan.")}
+        {t(
+          ". Your messages and the calendar context needed for your request go to OpenAI.",
+        )}
       </p>
       {!!auth.connection?.accounts.length && (
         <label className="field small">

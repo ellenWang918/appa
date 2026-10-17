@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
+import { useId, useState } from "react";
 import type { EventRepeatChoice, Task, TaskEdit } from "./types";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { CalendarBlank, Clock } from "@phosphor-icons/react";
@@ -22,7 +23,9 @@ export function TaskEditor({
   onClose: () => void;
   onSave: (edit: TaskEdit) => void;
 }) {
+  const errorId = useId();
   const t = useInterfaceText();
+  const guard = useActionGuard();
   const [error, setError] = useState("");
   const [allDay, setAllDay] = useState(!!task.allDay);
   const [repeatChoice, setRepeatChoice] = useState(repeat);
@@ -32,9 +35,13 @@ export function TaskEditor({
   const [endTime, setEndTime] = useState(
     clockTime(task.allDay ? 570 : (task.start + task.minutes) % 1440),
   );
+  const [title, setTitle] = useState(task.title);
+  const [date, setDate] = useState(task.date);
+  useUnsavedChanges({ title, date, allDay, repeatChoice, startTime, endTime });
   return (
     <form
       className="task-card-editor"
+      aria-describedby={error ? errorId : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         try {
@@ -67,7 +74,8 @@ export function TaskEditor({
           </span>
           <input
             name="title"
-            defaultValue={task.title}
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
             autoFocus
             maxLength={180}
             required
@@ -89,8 +97,9 @@ export function TaskEditor({
             <input
               type="date"
               name="date"
-              defaultValue={task.date}
-              min={today}
+              value={date}
+              onChange={(event) => setDate(event.target.value)}
+              min={task.goalId === null ? undefined : today}
               required
             />
           </label>
@@ -149,13 +158,17 @@ export function TaskEditor({
           </p>
         )}
         {error && (
-          <p className="inline-error" role="alert">
+          <p id={errorId} className="inline-error" role="alert">
             {t(error)}
           </p>
         )}
       </div>
       <div className="task-card-actions">
-        <button type="button" className="task-card-secondary" onClick={onClose}>
+        <button
+          type="button"
+          className="task-card-secondary"
+          onClick={() => guard.request(onClose)}
+        >
           {t("Cancel")}
         </button>
         <button type="submit" className="task-card-primary">

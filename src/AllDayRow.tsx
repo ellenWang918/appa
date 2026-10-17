@@ -39,21 +39,26 @@ export function AllDayRow({
       <span className="all-day-label">{t("All day")}</span>
       {dates.map((date) => (
         <div className="all-day-cell" key={date}>
-          {date >= today && (
-            <button
-              className="calendar-create-area"
-              aria-label={t("Create all-day event on {date}", {
-                date: cal.dateLabel(
-                  date,
-                  { weekday: "long", day: "numeric", month: "long" },
-                  state.settings.language,
-                ),
-              })}
-              onClick={(event) =>
-                onCreate(date, 540, event.currentTarget, true)
-              }
-            />
-          )}
+          <button
+            className="calendar-create-area"
+            aria-description={t(
+              "Double-click or press Enter to create an event.",
+            )}
+            aria-label={t("Create all-day event on {date}", {
+              date: cal.dateLabel(
+                date,
+                { weekday: "long", day: "numeric", month: "long" },
+                state.settings.language,
+              ),
+            })}
+            onClick={(event) => {
+              if (event.detail === 0)
+                onCreate(date, 540, event.currentTarget, true);
+            }}
+            onDoubleClick={(event) =>
+              onCreate(date, 540, event.currentTarget, true)
+            }
+          />
           {holidays(date).map((holiday) => (
             <p
               className="all-day-holiday"
@@ -68,6 +73,7 @@ export function AllDayRow({
             return (
               <button
                 key={slot.id}
+                data-goal-color={cal.personalCalendarFor(state)?.color}
                 className={`all-day-event ${slot.done ? "done" : ""} ${task.id === selectedTask ? "selected" : ""}`}
                 aria-label={t("{title}, all day", { title: task.title })}
                 onClick={(event) => onSlot(slot, event.currentTarget)}

@@ -1,4 +1,5 @@
-import { test } from "node:test";
+import * as c from "../dist/runtime/src/calendar.js";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
@@ -11,16 +12,21 @@ import { generateKeyPair, exportJWK, SignJWT } from "jose";
 import { createCredentialStore } from "../dist/runtime/server/credential-store.js";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
+const cleanupRoots = [];
+after(async () => {
+  for (const root of cleanupRoots) {
+    assert.ok(
+      path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep),
+    );
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 const deviceSecret = "test-private-desktop-session-1234567890";
 const deviceCookie = "calendar-device=" + deviceSecret;
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "goal-calendar-test-"));
-  t.after(() => {
-    assert.ok(
-      path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep),
-    );
-    return rm(root, { recursive: true, force: true });
-  });
+  cleanupRoots.push(root);
   const staticRoot = path.join(root, "public"),
     dataRoot = path.join(root, "data");
   await mkdir(path.join(staticRoot, "assets"), { recursive: true });
@@ -189,6 +195,8 @@ for (const requireCallbackCookie of [true, false]) {
 }
 
 async function signedSession(t, pause, options = {}) {
+  let assistantIntent = options.assistantIntent;
+  const assistantRequests = [];
   const { dataRoot } = await fixture(t);
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   const jwk = {
@@ -293,6 +301,21 @@ async function signedSession(t, pause, options = {}) {
           ],
         });
       }
+      if (
+        String(url) === "https://api.openai.com/v1/responses" &&
+        assistantIntent !== undefined
+      ) {
+        assistantRequests.push(JSON.parse(options.body));
+        if (pause === "assistant") {
+          entered();
+          await held;
+        }
+        const text = JSON.stringify(assistantIntent);
+        return new Response(
+          `data: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}\n\ndata: ${JSON.stringify({ type: "response.completed" })}\n\n`,
+          { headers: { "Content-Type": "text/event-stream" } },
+        );
+      }
       throw new Error("Unexpected synthetic request");
     },
   };
@@ -335,6 +358,10 @@ async function signedSession(t, pause, options = {}) {
   callback.searchParams.set("code", "synthetic-code");
   const finish = () => originalFetch(callback);
   return {
+    assistantRequests,
+    setAssistantIntent: (value) => {
+      assistantIntent = value;
+    },
     api,
     finish,
     started,
@@ -378,6 +405,397 @@ test("A remembered ChatGPT session survives restart and sign-out removes it", as
   assert.equal((await session.api("auth/disconnect", {})).status, 200);
   await session.restart();
   assert.equal((await (await session.api("session")).json()).connected, false);
+});
+
+function assistantIntent(kind, patch = {}) {
+  const today = c.localDate("Australia/Brisbane");
+  return {
+    kind,
+    message: "A short introduction",
+    plan: null,
+    event: null,
+    query: {
+      terms: [],
+      from: today,
+      to: today,
+      start: 0,
+      end: 1440,
+      operation: "agenda",
+      completedOnly: false,
+    },
+    destination: { from: today, to: c.addDays(today, 14), start: 0, end: 1440 },
+    ...patch,
+  };
+}
+
+test("SQLite calendar APIs require the private session and CSRF and preserve migration across restart", async (t) => {
+  const options = await fixture(t);
+  let runtime = await startLocalApp(options);
+  t.after(() => runtime.close());
+  const response = await fetch(runtime.origin + "/api/session", {
+    headers: { Cookie: deviceCookie },
+  });
+  const info = await response.json();
+  assert.equal(info.storage, "sqlite");
+  const headers = {
+    Cookie: `${deviceCookie}; ${response.headers.get("set-cookie").split(";")[0]}`,
+    "X-Calendar-CSRF": info.csrf,
+  };
+  const today = c.localDate("Australia/Brisbane");
+  const legacy = c.createEvent(
+    c.blank(today),
+    { title: "Private appointment", date: today, start: 540, minutes: 30 },
+    today,
+  );
+  const payload = {
+    scope: "main",
+    legacy,
+    legacyBackup: JSON.stringify(legacy),
+  };
+  const post = (route, data, custom = headers) =>
+    fetch(runtime.origin + "/api/" + route, {
+      method: "POST",
+      headers: custom,
+      body: JSON.stringify(data),
+    });
+  assert.equal(
+    (await post("calendar/bootstrap", payload, { Cookie: deviceCookie }))
+      .status,
+    401,
+  );
+  assert.equal(
+    (
+      await post("calendar/bootstrap", payload, {
+        ...headers,
+        "X-Calendar-CSRF": "wrong",
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await post("calendar/bootstrap", payload, {
+        ...headers,
+        Origin: "https://untrusted.example",
+      })
+    ).status,
+    403,
+  );
+  const saved = await (await post("calendar/bootstrap", payload)).json();
+  assert.deepEqual(saved.state.tasks, legacy.tasks);
+  assert.equal(
+    (
+      await post("calendar/save", {
+        scope: "main",
+        state: c.blank(today),
+        expectedVersion: 0,
+      })
+    ).status,
+    409,
+  );
+  await runtime.close();
+  runtime = await startLocalApp(options);
+  const next = await fetch(runtime.origin + "/api/session", {
+    headers: { Cookie: deviceCookie },
+  });
+  const auth = await next.json();
+  const restored = await (
+    await post(
+      "calendar/bootstrap",
+      { scope: "main", legacy: c.blank(today) },
+      {
+        Cookie: `${deviceCookie}; ${next.headers.get("set-cookie").split(";")[0]}`,
+        "X-Calendar-CSRF": auth.csrf,
+      },
+    )
+  ).json();
+  assert.deepEqual(restored.state.tasks, legacy.tasks);
+});
+
+test("Calendar assistant grounds history answers in SQLite instead of model-invented facts", async (t) => {
+  const today = c.localDate("Australia/Brisbane"),
+    date = c.addDays(today, -14);
+  const q = {
+    terms: ["haircut", "hair cut"],
+    from: c.addDays(today, -100),
+    to: c.addDays(today, 20),
+    start: 0,
+    end: 1440,
+    operation: "last",
+    completedOnly: false,
+  };
+  const session = await signedSession(t, null, {
+    assistantIntent: assistantIntent("search", {
+      message: "A deliberately unsupported claim about a haircut",
+      query: q,
+    }),
+  });
+  assert.equal((await session.finish()).status, 200);
+  let state = c.createEvent(
+    c.blank(today),
+    { title: "Hair cut", date, start: 540, minutes: 30 },
+    today,
+  );
+  state = c.createEvent(
+    state,
+    { title: "Haircut", date: c.addDays(today, 10), start: 540, minutes: 30 },
+    today,
+  );
+  state = c.createEvent(
+    state,
+    { title: "Unrelated private dentist note", date, start: 600, minutes: 30 },
+    today,
+  );
+  state = c.togglePersonalCalendar(state);
+  const initial = await (
+    await session.api("calendar/bootstrap", { scope: "main", legacy: state })
+  ).json();
+  const response = await session.api("assistant", {
+    scope: "main",
+    message: "When was my last haircut?",
+    messages: [],
+  });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.kind, "answer");
+  assert.equal(result.references[0].date, date);
+  assert.match(result.message, /not marked completed/);
+  assert.doesNotMatch(result.message, /deliberately unsupported/);
+  assert.equal(
+    session.assistantRequests[0].text.format.name,
+    "calendar_assistant",
+  );
+  assert.equal(
+    JSON.stringify(session.assistantRequests).includes(
+      "Unrelated private dentist note",
+    ),
+    false,
+  );
+  const after = await (
+    await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+  ).json();
+  assert.equal(after.storageVersion, initial.storageVersion);
+  assert.deepEqual(after.state.tasks, state.tasks);
+  session.setAssistantIntent(
+    assistantIntent("goal", {
+      plan: {
+        goalName: "Portfolio",
+        kind: "project",
+        perWeek: null,
+        clarification: null,
+        tasks: [{ title: "Choose projects", minutes: 15, dependsOn: [] }],
+      },
+    }),
+  );
+  const plan = await (
+    await session.api("assistant", {
+      scope: "main",
+      message: "Help me build a portfolio",
+      messages: [],
+    })
+  ).json();
+  assert.equal(plan.plan.goalName, "Portfolio");
+  assert.equal(
+    (
+      await (
+        await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+      ).json()
+    ).state.goals.length,
+    0,
+  );
+  session.setAssistantIntent(
+    assistantIntent("event", {
+      event: {
+        title: "Next haircut",
+        date: c.addDays(today, 2),
+        start: 600,
+        minutes: 30,
+        allDay: false,
+        repeat: "none",
+      },
+    }),
+  );
+  const event = await (
+    await session.api("assistant", {
+      scope: "main",
+      message: "Add a haircut",
+      messages: [],
+    })
+  ).json();
+  assert.equal(event.event.title, "Next haircut");
+  assert.equal(
+    (
+      await (
+        await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+      ).json()
+    ).state.tasks.length,
+    state.tasks.length,
+  );
+});
+
+test("Replanning requires selection and explicit application, preserves work, and rejects stale or replayed proposals", async (t) => {
+  const today = c.localDate("Australia/Brisbane"),
+    date = c.addDays(today, 2);
+  const intent = assistantIntent("reschedule", {
+    query: {
+      terms: [],
+      from: date,
+      to: date,
+      start: 540,
+      end: 720,
+      operation: "agenda",
+      completedOnly: false,
+    },
+    destination: { from: date, to: c.addDays(date, 2), start: 720, end: 1020 },
+  });
+  const session = await signedSession(t, null, { assistantIntent: intent });
+  await session.finish();
+  let state = c.createEvent(
+    c.blank(today),
+    { title: "Work meeting", date, start: 540, minutes: 30 },
+    today,
+  );
+  state = c.createEvent(
+    state,
+    { title: "Haircut", date, start: 600, minutes: 30 },
+    today,
+  );
+  const original = structuredClone(state);
+  const initial = await (
+    await session.api("calendar/bootstrap", { scope: "main", legacy: state })
+  ).json();
+  const selection = await (
+    await session.api("assistant", {
+      scope: "main",
+      message: "Free the morning by moving non-work tasks",
+      messages: [],
+    })
+  ).json();
+  assert.equal(selection.kind, "selection");
+  assert.equal(selection.references.length, 2);
+  const personal = selection.references.find((ref) => ref.title === "Haircut");
+  assert.equal(
+    (
+      await session.api("calendar/preview", {
+        scope: "main",
+        selectionId: selection.selectionId,
+        ids: ["invented-id"],
+      })
+    ).status,
+    400,
+  );
+  const previewResponse = await session.api("calendar/preview", {
+    scope: "main",
+    selectionId: selection.selectionId,
+    ids: [personal.id],
+  });
+  assert.equal(previewResponse.status, 200);
+  const preview = await previewResponse.json();
+  assert.equal(preview.kind, "proposal");
+  assert.equal(preview.moves.length, 1);
+  assert.equal(preview.moves[0].fromStart, 600);
+  assert.ok(preview.moves[0].toStart >= 720);
+  assert.equal(
+    (
+      await (
+        await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+      ).json()
+    ).storageVersion,
+    initial.storageVersion,
+  );
+  const appliedResponse = await session.api("calendar/apply", {
+    scope: "main",
+    proposalId: preview.proposalId,
+  });
+  assert.equal(appliedResponse.status, 200);
+  const applied = await appliedResponse.json();
+  assert.equal(
+    applied.state.tasks.find((task) => task.title === "Work meeting").start,
+    540,
+  );
+  assert.ok(
+    applied.state.tasks.find((task) => task.title === "Haircut").start >= 720,
+  );
+  assert.deepEqual(c.undoChange(applied.state).tasks, original.tasks);
+  assert.notEqual(
+    (
+      await session.api("calendar/apply", {
+        scope: "main",
+        proposalId: preview.proposalId,
+      })
+    ).status,
+    200,
+  );
+  const undone = c.undoChange(applied.state);
+  const restored = await (
+    await session.api("calendar/save", {
+      scope: "main",
+      state: undone,
+      expectedVersion: applied.storageVersion,
+    })
+  ).json();
+  assert.deepEqual(restored.state.tasks, original.tasks);
+  const nextSelection = await (
+    await session.api("assistant", {
+      scope: "main",
+      message: "Move non-work tasks",
+      messages: [],
+    })
+  ).json();
+  const nextPreview = await (
+    await session.api("calendar/preview", {
+      scope: "main",
+      selectionId: nextSelection.selectionId,
+      ids: [personal.id],
+    })
+  ).json();
+  await session.api("calendar/save", {
+    scope: "main",
+    state: c.togglePersonalCalendar(restored.state),
+    expectedVersion: restored.storageVersion,
+  });
+  assert.equal(
+    (
+      await session.api("calendar/apply", {
+        scope: "main",
+        proposalId: nextPreview.proposalId,
+      })
+    ).status,
+    409,
+  );
+  assert.deepEqual(
+    (
+      await (
+        await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+      ).json()
+    ).state.tasks,
+    original.tasks,
+  );
+});
+
+test("A calendar change during AI inference invalidates its response instead of creating a stale proposal", async (t) => {
+  const today = c.localDate("Australia/Brisbane");
+  const session = await signedSession(t, "assistant", {
+    assistantIntent: assistantIntent("search"),
+  });
+  await session.finish();
+  const state = c.blank(today);
+  const initial = await (
+    await session.api("calendar/bootstrap", { scope: "main", legacy: state })
+  ).json();
+  const pending = session.api("assistant", {
+    scope: "main",
+    message: "What is on today?",
+    messages: [],
+  });
+  await session.started;
+  await session.api("calendar/save", {
+    scope: "main",
+    state,
+    expectedVersion: initial.storageVersion,
+  });
+  session.release();
+  assert.equal((await pending).status, 409);
 });
 
 function memoryCredentials() {

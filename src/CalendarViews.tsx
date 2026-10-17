@@ -339,25 +339,30 @@ export function MonthCalendar({
                       <section
                         className={`month-cell ${monthStart(date) !== visibleMonth ? "outside-month" : ""} ${date === selectedDay ? "selected" : ""}`}
                       >
-                        {date >= today && (
-                          <button
-                            className="calendar-create-area"
-                            aria-label={t("Create event on {date}", {
-                              date: cal.dateLabel(
-                                date,
-                                {
-                                  day: "numeric",
-                                  month: "long",
-                                  year: "numeric",
-                                },
-                                state.settings.language,
-                              ),
-                            })}
-                            onClick={(event) =>
-                              onCreate(date, undefined, event.currentTarget)
-                            }
-                          />
-                        )}
+                        <button
+                          className="calendar-create-area"
+                          aria-description={t(
+                            "Double-click or press Enter to create an event.",
+                          )}
+                          aria-label={t("Create event on {date}", {
+                            date: cal.dateLabel(
+                              date,
+                              {
+                                day: "numeric",
+                                month: "long",
+                                year: "numeric",
+                              },
+                              state.settings.language,
+                            ),
+                          })}
+                          onClick={(event) => {
+                            if (event.detail === 0)
+                              onCreate(date, undefined, event.currentTarget);
+                          }}
+                          onDoubleClick={(event) =>
+                            onCreate(date, undefined, event.currentTarget)
+                          }
+                        />
                         <button
                           className="month-day"
                           aria-label={t("View {v0}", {
@@ -387,6 +392,7 @@ export function MonthCalendar({
                         ))}
                         {slots.slice(0, 3).map((slot) => (
                           <button
+                            data-goal-color={cal.slotGoalColor(state, slot)}
                             className={`month-task ${slot.done ? "done" : ""}`}
                             key={slot.id}
                             onClick={(event) =>

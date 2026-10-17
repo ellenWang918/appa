@@ -1,3 +1,4 @@
+import { useActionGuard } from "./ActionGuard";
 import { IconButton } from "./ui";
 import { useEffect, useRef, useState } from "react";
 import { Check, Clock, LockSimple, Square, X } from "@phosphor-icons/react";
@@ -33,6 +34,7 @@ export function TaskCard({
   onChoice: (task: Task) => void;
 }) {
   const t = useInterfaceText();
+  const guard = useActionGuard();
   const { ref, position } = useFloatingCard(anchor);
   const editButton = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
@@ -75,6 +77,7 @@ export function TaskCard({
   }, [editing]);
   useEffect(() => {
     function onPointer(event: PointerEvent) {
+      if (guard.confirming()) return;
       const target = event.target;
       if (
         target instanceof Node &&
@@ -84,9 +87,10 @@ export function TaskCard({
         onClose();
     }
     function onKey(event: KeyboardEvent) {
+      if (guard.confirming()) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        if (editing) setEditing(false);
+        if (editing) guard.request(() => setEditing(false));
         else {
           onClose();
           anchor?.focus({ preventScroll: true });
@@ -105,6 +109,7 @@ export function TaskCard({
     <section
       ref={ref}
       className="task-card"
+      data-goal-color={goal?.color ?? cal.personalCalendarFor(state)?.color}
       role="region"
       aria-label={standalone ? t("Event details") : t("Task details")}
       tabIndex={-1}
@@ -127,7 +132,7 @@ export function TaskCard({
         <TaskEditor
           key={task.id}
           task={task}
-          goalName={goal?.name ?? t("Event")}
+          goalName={goal?.name ?? cal.personalCalendarFor(state)?.name ?? t("Event")}
           repeat={series?.repeat ?? "none"}
           today={today}
           onClose={() => setEditing(false)}
@@ -139,7 +144,7 @@ export function TaskCard({
       ) : (
         <>
           <div className="task-card-main">
-            <p className="task-card-goal">{goal?.name ?? t("Event")}</p>
+            <p className="task-card-goal">{goal?.name ?? cal.personalCalendarFor(state)?.name ?? t("Event")}</p>
             <h2>{task.title}</h2>
             <p className="task-card-date">
               {cal
@@ -232,7 +237,7 @@ export function TaskCard({
               data-action="destructive"
               onClick={onRemove}
             >
-              {series ? t("Remove this event") : t("Remove event")}
+              {series ? t("Delete this occurrence") : t("Delete event")}
             </button>
           )}
           {task.status === "pending" && task.date !== today && (
