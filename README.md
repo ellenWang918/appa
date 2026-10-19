@@ -42,6 +42,10 @@ Live account consent and real inference require an eligible user's authorization
 
 ## Calendar behavior
 
+- Chat can add, list, rename, complete, reopen, remove and schedule items in the To do list. Try “Add buy milk to my to do list” or “Schedule call Mum tomorrow at 10am”. Existing items are matched locally; select matches and review changes before applying. Batch changes support one Undo.
+
+- **To do list** on the right accepts tasks without a date or time. Add a title and press Enter, or turn off **Set date and time** in Create event. Use the leading check button to complete or reopen an item. Drag a pending card into Day/Week to schedule thirty minutes, then resize it as needed; drop onto a Month date or All day row for an all-day event. The card's Schedule button opens the date/time editor. Scheduling moves the item out of the list and supports Undo. The list saves locally and is included in backups.
+
 - Day, Week, Month and Year views use the same local calendar. Navigate dates with the left month picker or the header arrows; **Today** returns to the current date.
 - Scroll Month view up or down to browse earlier and later months. The heading and mini calendar follow the visible month; **Today** jumps back to this month.
 - Scroll Year view in either direction to browse earlier and later years. Each year shows all twelve months, and the heading follows the visible year. Select a month heading to open Month or a date to open Day.

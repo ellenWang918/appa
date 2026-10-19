@@ -126,7 +126,7 @@ test("Custom week starts handle month and year boundaries", () => {
   assert.equal(c.weekStart("2027-01-01", 0), "2026-12-27");
   assert.equal(c.weekStart("2027-01-01", 6), "2026-12-26");
   assert.equal(c.weekStart("2026-10-18", 0), "2026-10-18");
-  assert.equal(c.monday("2026-10-18"), "2026-10-12");
+  assert.equal(c.weekStart("2026-10-18"), "2026-10-12");
 });
 
 test("Queensland public holidays include regional dates, substitute days and the Christmas Eve evening", () => {

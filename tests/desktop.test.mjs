@@ -512,6 +512,135 @@ test("SQLite calendar APIs require the private session and CSRF and preserve mig
   assert.deepEqual(restored.state.tasks, legacy.tasks);
 });
 
+test("To do chat APIs require explicit review/application and update the persisted list with Undo", async (t) => {
+  const today = c.localDate("Australia/Brisbane");
+  const todoRequest = (action, patch = {}) => ({
+    action,
+    terms: [],
+    status: "pending",
+    items: [],
+    title: null,
+    schedule: null,
+    ...patch,
+  });
+  const session = await signedSession(t, null, {
+    assistantIntent: assistantIntent("todo", {
+      message: "I already completed everything (an unsupported model claim)",
+      todo: todoRequest("add", { items: [{ title: "Buy milk", minutes: 30 }] }),
+    }),
+  });
+  assert.equal((await session.finish()).status, 200);
+  const state = c.addTodo(c.blank(today), "Unrelated private to do");
+  const initial = await (
+    await session.api("calendar/bootstrap", { scope: "main", legacy: state })
+  ).json();
+  const ask = async (message) => {
+    const response = await session.api("assistant", {
+      scope: "main",
+      message,
+      messages: [],
+    });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const proposed = await ask("Add buy milk to my to do list");
+  assert.equal(proposed.kind, "todo_proposal");
+  assert.doesNotMatch(proposed.message, /already completed/);
+  assert.equal(
+    (
+      await (
+        await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+      ).json()
+    ).storageVersion,
+    initial.storageVersion,
+  );
+  assert.equal(
+    session.assistantRequests[0].text.format.schema.properties.kind.enum.includes(
+      "todo",
+    ),
+    true,
+  );
+  assert.equal(
+    session.assistantRequests[0].instructions.includes(
+      "unscheduled To do list",
+    ),
+    true,
+  );
+  assert.equal(
+    JSON.stringify(session.assistantRequests).includes(
+      "Unrelated private to do",
+    ),
+    false,
+  );
+  const addedResponse = await session.api("todos/apply", {
+    scope: "main",
+    proposalId: proposed.proposalId,
+  });
+  assert.equal(addedResponse.status, 200);
+  const added = await addedResponse.json();
+  assert.equal(added.state.todos.length, 2);
+  const id = added.state.todos.find((todo) => todo.title === "Buy milk").id;
+  assert.deepEqual(c.undoChange(added.state).todos, state.todos);
+  session.setAssistantIntent(
+    assistantIntent("todo", {
+      todo: todoRequest("complete", { terms: ["buy milk"] }),
+    }),
+  );
+  const selected = await ask("Mark buy milk complete");
+  assert.equal(selected.kind, "todo_selection");
+  assert.equal(selected.todos[0].id, id);
+  const invalid = await session.api("todos/preview", {
+    scope: "main",
+    selectionId: selected.selectionId,
+    ids: ["invented"],
+  });
+  assert.notEqual(invalid.status, 200);
+  const previewResponse = await session.api("todos/preview", {
+    scope: "main",
+    selectionId: selected.selectionId,
+    ids: [id],
+  });
+  assert.equal(previewResponse.status, 200);
+  const preview = await previewResponse.json();
+  assert.equal(preview.todoChanges[0].after.done, true);
+  assert.equal(
+    (
+      await (
+        await session.api("calendar/bootstrap", { scope: "main", legacy: null })
+      ).json()
+    ).state.todos.find((todo) => todo.id === id).done,
+    false,
+  );
+  const completedResponse = await session.api("todos/apply", {
+    scope: "main",
+    proposalId: preview.proposalId,
+  });
+  assert.equal(completedResponse.status, 200);
+  const completed = await completedResponse.json();
+  assert.equal(completed.state.todos.find((todo) => todo.id === id).done, true);
+  assert.equal(
+    c.undoChange(completed.state).todos.find((todo) => todo.id === id).done,
+    false,
+  );
+  assert.notEqual(
+    (
+      await session.api("todos/apply", {
+        scope: "main",
+        proposalId: preview.proposalId,
+      })
+    ).status,
+    200,
+  );
+  session.setAssistantIntent(
+    assistantIntent("todo", {
+      todo: todoRequest("list", { status: "completed" }),
+    }),
+  );
+  const answer = await ask("Show completed to dos");
+  assert.equal(answer.kind, "todo_answer");
+  assert.match(answer.message, /Buy milk — completed/);
+});
+
 test("Calendar assistant grounds history answers in SQLite instead of model-invented facts", async (t) => {
   const today = c.localDate("Australia/Brisbane"),
     date = c.addDays(today, -14);

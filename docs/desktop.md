@@ -18,6 +18,8 @@ The calendar profile is local storage, not encrypted storage. Export backups reg
 
 ## SQLite calendar storage
 
+Unscheduled To do list items and completion states live in the validated workspace snapshot alongside the calendar. They have no calendar date or start time and are included in backups/import. Scheduling converts one item into a personal event with the same identity and removes it from the list in one saved change; Undo restores both sides. The dated event projection contains scheduled items only.
+
 The main process owns the SQLite connection using Node's built-in `node:sqlite`. The renderer loads the saved workspace before showing the calendar and saves through the existing authenticated, same-origin, CSRF-protected local service. No account sign-in is needed to load or save local data. Desktop keeps its device-cookie boundary. Node.js 22.13 or newer is needed when building from source; the pinned Electron runtime already includes SQLite support.
 
 `workspace` holds the validated calendar snapshot and revision. `event`, `goal` and `event_series` are transactional searchable projections of that snapshot. Calendar settings, draft plans, choices, colours, completion history and recurrence overrides retain their existing backup format and identities. `change_history` retains up to 100 previous snapshots per workspace; this internal recovery history is separate from the one-level Undo available in the current session. Chat messages are not persisted. Short-lived, revision-bound replanning selections/proposals are saved in `proposal` and expire after 30 minutes.

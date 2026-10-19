@@ -1,6 +1,5 @@
 import { DestructiveAction } from "./DestructiveAction";
 import { goalDeletionImpact } from "./actionPatterns";
-import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { useEffect, useRef, useState } from "react";
 import type { SetStateAction } from "react";
@@ -457,7 +456,7 @@ export function Planner({ state, onClose, onDraft, onApprove }: PlannerProps) {
 interface SettingsProps {
   state: CalendarState;
   onClose: () => void;
-  onSave: (settings: PlanningSettings) => void;
+  onChange: (settings: PlanningSettings) => void;
   onExport: () => void;
   onImport: () => void;
 }
@@ -471,19 +470,24 @@ const settingsSections = [
 export function Settings({
   state,
   onClose,
-  onSave,
+  onChange,
   onExport,
   onImport,
 }: SettingsProps) {
   const t = useInterfaceText();
 
-  const [settings, setSettings] = useState(state.settings),
-    [error, setError] = useState("");
+  const [error, setError] = useState("");
   const [section, setSection] =
     useState<(typeof settingsSections)[number]["id"]>("user");
   const panel = useRef<HTMLDivElement>(null);
-  const dirty = useUnsavedChanges(settings);
-  const editable = dirty || section === "calendar" || section === "goals";
+  function applySettings(settings: PlanningSettings) {
+    try {
+      onChange(settings);
+      setError("");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }
   return (
     <Dialog
       title={t("Settings")}
@@ -510,25 +514,7 @@ export function Settings({
             </button>
           ))}
         </nav>
-        <form
-          className="settings-content"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!editable) return;
-            try {
-              onSave(settings);
-            } catch (caught) {
-              if (
-                settings.useAvailableTime &&
-                (!Number.isFinite(settings.start) ||
-                  !Number.isFinite(settings.end) ||
-                  settings.start >= settings.end)
-              )
-                setSection("goals");
-              setError(errorMessage(caught));
-            }
-          }}
-        >
+        <div className="settings-content">
           <div
             ref={panel}
             id="settings-panel"
@@ -540,10 +526,16 @@ export function Settings({
               <UserSettings />
             </div>
             {section === "calendar" && (
-              <CalendarSettings settings={settings} onChange={setSettings} />
+              <CalendarSettings
+                settings={state.settings}
+                onChange={applySettings}
+              />
             )}
             {section === "goals" && (
-              <GoalSettings settings={settings} onChange={setSettings} />
+              <GoalSettings
+                settings={state.settings}
+                onChange={applySettings}
+              />
             )}
             {section === "backup" && (
               <fieldset className="settings-section">
@@ -578,32 +570,18 @@ export function Settings({
               </fieldset>
             )}
             {error && (
-              <p className="inline-error" role="alert">
-                {t(error)}
-              </p>
+              <div className="inline-error" role="alert">
+                <p>{t(error)}</p>
+                <p>{t("Your previous settings are still in use.")}</p>
+              </div>
             )}
           </div>
           <div className="dialog-actions settings-actions">
-            {editable ? (
-              <>
-                <button type="button" className="secondary" onClick={onClose}>
-                  {t("Cancel")}
-                </button>
-                <button className="primary" type="submit">
-                  {t("Save settings")}
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className={section === "backup" ? "primary" : "secondary"}
-                onClick={onClose}
-              >
-                {t("Done")}
-              </button>
-            )}
+            <p className="settings-autosave">
+              {t("Changes apply and save automatically.")}
+            </p>
           </div>
-        </form>
+        </div>
       </div>
     </Dialog>
   );

@@ -40,11 +40,13 @@ export function goalDeletionImpact(state: CalendarState, goalId: string) {
 
 export function calendarReplacementIsHighImpact(state: CalendarState) {
   return (
-    state.tasks.length >= 30 ||
+    state.tasks.length + (state.todos?.length ?? 0) >= 30 ||
+    state.todos?.some((todo) => todo.done) ||
     state.tasks.some((task) => task.status === "done") ||
     (!state.sample &&
       (state.goals.length > 0 ||
         state.tasks.length > 0 ||
-        !!state.eventSeries?.length))
+        !!state.eventSeries?.length ||
+        !!state.todos?.length))
   );
 }

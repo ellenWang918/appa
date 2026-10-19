@@ -16,7 +16,7 @@ export function assistantSchema(plan: object) {
     properties: {
       kind: {
         type: "string",
-        enum: ["clarify", "goal", "event", "search", "reschedule"],
+        enum: ["clarify", "goal", "event", "search", "reschedule", "todo"],
       },
       message: { type: "string" },
       query: {
@@ -33,6 +33,68 @@ export function assistantSchema(plan: object) {
         required: [...window.required, "terms", "operation", "completedOnly"],
       },
       destination: window,
+      todo: {
+        anyOf: [
+          { type: "null" },
+          {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              action: {
+                type: "string",
+                enum: [
+                  "list",
+                  "add",
+                  "rename",
+                  "complete",
+                  "reopen",
+                  "delete",
+                  "schedule",
+                ],
+              },
+              terms: { type: "array", items: { type: "string" } },
+              status: { type: "string", enum: ["pending", "completed", "all"] },
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    title: { type: "string" },
+                    minutes: { type: "integer" },
+                  },
+                  required: ["title", "minutes"],
+                },
+              },
+              title: { type: ["string", "null"] },
+              schedule: {
+                anyOf: [
+                  { type: "null" },
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      date: { type: "string" },
+                      start: { type: "integer" },
+                      minutes: { type: ["integer", "null"] },
+                      allDay: { type: "boolean" },
+                    },
+                    required: ["date", "start", "minutes", "allDay"],
+                  },
+                ],
+              },
+            },
+            required: [
+              "action",
+              "terms",
+              "status",
+              "items",
+              "title",
+              "schedule",
+            ],
+          },
+        ],
+      },
       plan: { anyOf: [plan, { type: "null" }] },
       event: {
         anyOf: [
@@ -63,6 +125,14 @@ export function assistantSchema(plan: object) {
         ],
       },
     },
-    required: ["kind", "message", "query", "destination", "plan", "event"],
+    required: [
+      "kind",
+      "message",
+      "query",
+      "destination",
+      "plan",
+      "event",
+      "todo",
+    ],
   };
 }

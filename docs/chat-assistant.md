@@ -4,9 +4,9 @@ Implemented in source: 18 October 2026, Australia/Brisbane. Automated checks use
 
 ## Scope and presentation
 
-The floating chat supports three capabilities in one conversation: plan new work, answer questions from saved calendar data, and reorganise upcoming entries. Users do not select a mode. The existing personal ChatGPT connection and account-discovered model are used. Calendar storage and manual planning work without signing in.
+The floating chat supports planning new work, answering questions from saved calendar data, reorganising upcoming entries and managing the unscheduled To do list. Users do not select a mode. The existing personal ChatGPT connection and account-discovered model are used. Calendar storage and manual planning work without signing in.
 
-Preserve the approved floating layout: same width as the compact composer, 560px maximum, 400px total expanded height, scrollable conversation and bottom-anchored input. No Close button or backdrop. Click/Enter opens; Escape/outside click collapses, preserving conversation and unsent text for this session. Chat history is not persisted or exported.
+Preserve the approved floating layout: same width as the compact composer, 560px maximum, 400px total expanded height, scrollable conversation and bottom-anchored input. No Close button or backdrop. Click/focus keeps the conversation collapsed for typing. Submitting a non-empty message opens and sends in one action; when disconnected, Send stays enabled with a “Sign in to ChatGPT first” tooltip on hover or keyboard focus, and opens sign-in without losing any text, even with an empty input. Escape/outside click collapses, preserving conversation and unsent text for this session. Chat history is not persisted or exported.
 
 ## 1. Plan a goal or event
 
@@ -43,6 +43,16 @@ Example: “Keep Monday morning free. Move my non-work tasks to another time.”
 A proposal can move 1–100 selected entries within a destination range of at most 90 days. The default destination is the source end through 14 days later. Selection/proposal tokens expire after 30 minutes and are bound to their workspace and calendar revision. Any intervening saved edit, expired token, elapsed proposed start time or conflict requires fresh times. A failed batch applies no partial changes.
 
 Replanning preserves duration and uses 15-minute candidate start increments. It does not delete content, mark tasks complete, shorten events, change work classifications or rewrite recurrence templates. Requests for all future occurrences need an explanation of the current single-occurrence limit. If capacity or prerequisites prevent a feasible plan, choose fewer entries, a wider destination range, or include dependent steps.
+
+## To do list management
+
+Examples: “Add buy milk and read a book to my to do list”, “Show unfinished to dos”, “Mark laundry complete”, “Rename buy milk to buy oat milk”, “Reopen the reading task”, “Remove buy bread”, “Schedule call Mum tomorrow at 10am”.
+
+The model produces a structured list/add/rename/complete/reopen/delete/schedule request using title terms, status and requested values. It receives no automatic dump of the list and cannot supply target IDs. The local service searches the current saved list and assembles grounded results; items displayed in a chat reply can be part of follow-up history. Missing dates/times are not required to add a to do; scheduling asks for an exact date/time or all-day choice and preserves the existing duration unless a new one is requested.
+
+Read-only requests change nothing. Add requests show proposed new cards. Changes to existing items show checkboxes containing actual matching to dos, followed by a before/after review. A single match is selected initially; ambiguous matches require selection. Rename and schedule operate on one selected item; add/complete/reopen/delete support up to 100 items. Apply to do changes commits the whole reviewed batch in SQLite, refreshes the side panel/calendar, and provides one Undo. Cancel changes applies nothing. Scheduled items preserve identity and leave the list; calendar conflicts, hidden reservations, passed times and completion state are rechecked. Completed scheduled events remain outside to do operations.
+
+Review tokens use the existing thirty-minute, workspace/version-bound proposal store. Intervening saved edits, expired/cross-workspace/replayed proposals or a scheduling time that has passed fail without a partial write. Unknown model fields are discarded, and model prose never supplies a factual success claim. Automated tests cover structured intent, selection, preview, apply, persistence and Undo through the real local HTTP service with simulated AI output. Live account and visual interaction verification remain pending.
 
 ## Storage and request boundaries
 

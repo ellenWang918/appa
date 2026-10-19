@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useInterfaceText } from "./InterfaceLanguage";
 import type { Settings } from "./types";
 import { clockTime } from "./calendar";
@@ -20,6 +20,22 @@ export function GoalSettings({
 }) {
   const t = useInterfaceText();
   const helpId = useId();
+  const [startTime, setStartTime] = useState(() => minuteInput(settings.start));
+  const [endTime, setEndTime] = useState(() => minuteInput(settings.end));
+  useEffect(() => {
+    setStartTime(minuteInput(settings.start));
+    setEndTime(minuteInput(settings.end));
+  }, [settings.start, settings.end, settings.useAvailableTime]);
+  function changeHours(start: string, end: string) {
+    setStartTime(start);
+    setEndTime(end);
+    const endMinute = parseMinute(end);
+    onChange({
+      ...settings,
+      start: parseMinute(start),
+      end: endMinute === 0 ? 1440 : endMinute,
+    });
+  }
   return (
     <fieldset className="settings-section">
       <legend>{t("Goal settings")}</legend>
@@ -51,25 +67,19 @@ export function GoalSettings({
               {t("Available from")}
               <input
                 type="time"
-                value={minuteInput(settings.start)}
+                value={startTime}
                 required
-                onChange={(event) =>
-                  onChange({
-                    ...settings,
-                    start: parseMinute(event.target.value),
-                  })
-                }
+                onChange={(event) => changeHours(event.target.value, endTime)}
               />
             </label>
             <label className="field">
               {t("Until")}
               <input
                 type="time"
-                value={minuteInput(settings.end)}
+                value={endTime}
                 required
                 onChange={(event) => {
-                  const end = parseMinute(event.target.value);
-                  onChange({ ...settings, end: end === 0 ? 1440 : end });
+                  changeHours(startTime, event.target.value);
                 }}
               />
             </label>

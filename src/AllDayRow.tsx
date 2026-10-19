@@ -1,4 +1,11 @@
-import type { CalendarState, EventDraft, HolidayLookup, Slot } from "./types";
+import type {
+  CalendarState,
+  EventDraft,
+  HolidayLookup,
+  Slot,
+  Todo,
+} from "./types";
+import { useState } from "react";
 import { useInterfaceText } from "./InterfaceLanguage";
 import * as cal from "./calendar";
 import { holidayLabel } from "./holidayDates";
@@ -7,17 +14,17 @@ import { EventReservation } from "./EventReservation";
 export function AllDayRow({
   dates,
   state,
-  today,
   holidays,
   selectedTask,
   draft,
   onSlot,
   onCreate,
   onDraftAnchor,
+  draggedTodo,
+  onScheduleTodo,
 }: {
   dates: string[];
   state: CalendarState;
-  today: string;
   holidays: HolidayLookup;
   selectedTask: string | null;
   draft: EventDraft | null;
@@ -29,8 +36,16 @@ export function AllDayRow({
     allDay?: boolean,
   ) => void;
   onDraftAnchor: (element: HTMLElement | null) => void;
+  draggedTodo: Todo | null;
+  onScheduleTodo: (
+    todo: Todo,
+    date: string,
+    start: number,
+    allDay?: boolean,
+  ) => void;
 }) {
   const t = useInterfaceText();
+  const [dropDate, setDropDate] = useState<string | null>(null);
   return (
     <section
       className="all-day-row"
@@ -38,7 +53,33 @@ export function AllDayRow({
     >
       <span className="all-day-label">{t("All day")}</span>
       {dates.map((date) => (
-        <div className="all-day-cell" key={date}>
+        <div
+          className={`all-day-cell${cal.isWeekend(date) ? " is-weekend" : ""}${draggedTodo && dropDate === date ? " todo-drop-cell" : ""}`}
+          key={date}
+          data-goal-color={cal.personalCalendarFor(state)?.color ?? "slate"}
+          onDragOver={(event) => {
+            if (draggedTodo) {
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "move";
+              setDropDate(date);
+            }
+          }}
+          onDragLeave={(event) => {
+            if (
+              !(event.relatedTarget instanceof Node) ||
+              !event.currentTarget.contains(event.relatedTarget)
+            )
+              setDropDate(null);
+          }}
+          onDrop={(event) => {
+            if (!draggedTodo) return;
+            event.preventDefault();
+            event.stopPropagation();
+            setDropDate(null);
+            onScheduleTodo(draggedTodo, date, 0, true);
+          }}
+        >
           <button
             className="calendar-create-area"
             aria-description={t(
@@ -82,9 +123,11 @@ export function AllDayRow({
               </button>
             );
           })}
-          {draft?.reservationAllDay && draft.date === date && (
-            <EventReservation draft={draft} onAnchor={onDraftAnchor} />
-          )}
+          {draft?.reservationAllDay &&
+            !draft.unscheduled &&
+            draft.date === date && (
+              <EventReservation draft={draft} onAnchor={onDraftAnchor} />
+            )}
         </div>
       ))}
     </section>

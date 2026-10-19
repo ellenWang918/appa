@@ -55,7 +55,7 @@ Secondary and supporting describe different purposes even when their outlined ap
 
 ### Home, planner and task cards
 
-The bottom composer is a floating chat container centred within the calendar workspace. Its input retains the existing compact width (560px maximum, shrinking with viewport space) and 48px minimum height. Click or Enter while focused expands the white container upward to 400px total height, including the input, capped by available workspace height. The conversation, header and input share exactly the same outer width. Calendar content stays visible on both sides; do not add a full-width background panel, side panel or backdrop.
+The bottom composer is a floating chat container centred within the calendar workspace. Its input retains the existing compact width (560px maximum, shrinking with viewport space) and 48px minimum height. Clicking or focusing the input keeps it compact for typing. Submitting a non-empty message opens the conversation and sends the message in the same action, expanding the white container upward to 400px total height, including the input, capped by available workspace height. When disconnected, Send stays enabled and shows “Sign in to ChatGPT first” on hover or keyboard focus; clicking it opens sign-in while retaining any message, including when the input is empty. The conversation, header and input share exactly the same outer width. Calendar content stays visible on both sides; do not add a full-width background panel, side panel or backdrop.
 
 Use an 8px radius for expanded chat, a subtle border/shadow, compact Appa header and no Close button. The input stays at its original bottom position; the scrollable conversation appears above it. User bubbles align right; assistant avatar and bubble align left, contained within the same padded width. Use native text, existing typography and the small red send arrow. Escape or outside click collapses chat without deleting the draft or conversation. Opening follows unsaved-change protection for other editors.
 
@@ -86,12 +86,12 @@ Calendar deletion includes its personal events, completed history and repeating 
 
 | Section           | Primary              | Secondary                    |
 | ----------------- | -------------------- | ---------------------------- |
-| User              | Sign in with ChatGPT | Done                         |
-| Calendar settings | Save settings        | Cancel                       |
-| Goal settings     | Save settings        | Cancel                       |
-| Backup            | Done                 | Export backup, Import backup |
+| User              | Sign in with ChatGPT | —                            |
+| Calendar settings | —                    | —                            |
+| Goal settings     | —                    | —                            |
+| Backup            | —                    | Export backup, Import backup |
 
-These section-specific roles were explicitly selected by the user. The planner retains supporting sign-in; the User section promotes it to primary. Connected-account Sign out and pending-sign-in Check connection retain their existing supporting roles.
+Settings changes apply and save immediately, as requested on 2026-10-19. All sections omit Done and Save/Cancel buttons. Close Settings with the header X, Escape or the backdrop. The planner retains supporting sign-in; the User section promotes it to primary. Connected-account Sign out and pending-sign-in Check connection retain their existing supporting roles.
 
 ### Icon buttons and tooltip exceptions
 
@@ -124,9 +124,9 @@ Updated on 17 October 2026 using [Carbon's Common actions](https://www.carbondes
 | Create | Make a new object: Create event, Create step, Create an AI plan or Write a plan myself. Use Create step in planner and goal editing when aligning labels with this vocabulary. |
 | Add | Insert an existing object into a collection or active context. Activating a saved Later goal adds it to the calendar. Do not imply creation when reusing an existing object. |
 | Edit | Enter an explicit editing state. Preserve saved values until Save/Update succeeds; Cancel returns to the previous state after resolving unsaved changes. |
-| Save / Update / Apply | Commit the current draft. Retain Save event, Save goal, Save settings, Update, Save in Later and Approve & schedule where their scope is clear. Show success after the action succeeds and retain input on failure. |
+| Save / Update / Apply | Commit the current draft. Retain Save event, Save goal, Update, Save in Later and Approve & schedule where their scope is clear. Settings apply automatically. Show success after the action succeeds and retain input on failure. |
 | Cancel | Stop the current operation. Use a secondary action. Cancellation must not silently discard changed values; use the protection rule below. |
-| Close | Dismiss a card, dialog or message with the existing X and accessible name. Escape and outside clicks follow the same dirty-state rule. Preserve the approved no-tooltip exception for Close. Settings Done retains its explicit role, but must resolve pending edits before closing. |
+| Close | Dismiss a card, dialog or message with the existing X and accessible name. Escape and outside clicks follow the same dirty-state rule for explicit drafts. Preserve the approved no-tooltip exception for Close. Settings closes through X, Escape or its backdrop; valid changes are already applied. |
 | Clear | Empty a field, selection or explicitly named data scope. A field-clear control uses X beside the value with an accessible name such as Clear event name. Clear calendar is a destructive bulk action, not an ordinary field clear. |
 | Copy | Produce an identical copy, with Copied feedback after success. No dedicated clipboard-copy or duplication action currently exists. Export a copy remains an export operation. |
 | Delete | Destroy an object. Use Delete event, Delete this occurrence, Delete step or Delete goal. Keep trash/danger treatment and safeguards proportional to impact. Undo does not change deletion into removal. |
@@ -142,7 +142,7 @@ Updated on 17 October 2026 using [Carbon's Common actions](https://www.carbondes
 - A draft is dirty when its current values differ from the initial or last saved values. Opening a form or focusing a field alone does not make it dirty.
 - Clean drafts close immediately. For changed event, task, goal or settings drafts, retain the draft or ask Discard changes? with Keep editing and Discard changes. Keep editing preserves all entered values; Discard changes returns to saved data.
 - Apply the same rule to Cancel, X, Escape, outside clicks and navigation that would abandon the draft. Keep the existing floating card nonmodal during ordinary editing. Return focus to the relevant trigger or editing control after dismissal or cancellation.
-- Settings has one draft across Calendar and Goal settings. Section switching must not hide pending changes behind Done in User or Backup. Keep Save/Cancel available while dirty, or resolve changes before leaving the editable section. Preserve the approved clean-state section roles.
+- Calendar and Goal settings apply valid changes immediately. Invalid availability input stays local for correction; the last valid settings remain active. Settings has no unsaved overall draft or Done/Save/Cancel buttons.
 - Planner drafts already persist. Back to intention and closing/reopening the planner preserve the plan; continue this behavior. Draft-step Undo restores prerequisites as well as the step.
 
 ### Destructive scope and safeguards
@@ -322,7 +322,7 @@ Month headings open Month; dates open Day. Today keeps the shared 24px red marke
 
 ### Optional goal availability
 
-Goal settings begins with Set available time, using a labelled monochrome checkbox and 13px medium text. Explain that it limits goal scheduling to certain hours. When checked, show the existing Available from / Until inputs and pending-step explanation. When unchecked, hide the time inputs and explain that goals may be scheduled at any time of day while existing tasks stay in place. Preserve typed hours when toggling or switching Settings sections. The Until field accepts 00:00 as midnight at the end of the day, with a compact neutral explanation. Keep Save settings and Cancel in their existing roles and positions. Use native keyboard/focus behavior, a programmatically associated explanation, and the same narrow-screen field layout as Calendar settings.
+Goal settings begins with Set available time, using a labelled monochrome checkbox and 13px medium text. Explain that it limits goal scheduling to certain hours. When checked, show the existing Available from / Until inputs and pending-step explanation. When unchecked, hide the time inputs and explain that goals may be scheduled at any time of day while existing tasks stay in place. Valid changes apply and save immediately; remembered hours persist when toggling or switching sections. Incomplete or invalid time inputs remain editable locally while the last valid settings stay active, with an inline explanation. The Until field accepts 00:00 as midnight at the end of the day. Use the header X, Escape or backdrop to close, native keyboard/focus behavior, a programmatically associated explanation, and the same narrow-screen field layout as Calendar settings.
 
 ### Active-goal editing
 

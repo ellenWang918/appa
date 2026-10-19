@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { CalendarState, StoredCalendar, Task } from "../src/types.js";
+import type { StoredCalendar, Task } from "../src/types.js";
 import { validateBackup } from "../src/calendar.js";
 
 export class CalendarConflict extends Error {}

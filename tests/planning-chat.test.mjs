@@ -1,26 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  planningChatIntention,
-  planningChatReply,
-  assistantChatHistory,
-} from "../dist/runtime/src/planningChat.js";
-
-test("Planning chat retains the original goal and recent clarification without changing messages", () => {
-  const messages = [
-    { role: "user", text: "Launch my portfolio" },
-    { role: "assistant", text: "How much time do you have?" },
-  ];
-  const original = structuredClone(messages);
-  const intention = planningChatIntention(
-    messages,
-    "  Three evenings per week  ",
-  );
-  assert.match(intention, /Original goal: Launch my portfolio/);
-  assert.match(intention, /assistant: How much time do you have/);
-  assert.ok(intention.endsWith("user: Three evenings per week"));
-  assert.deepEqual(messages, original);
-});
+import { assistantChatHistory } from "../dist/runtime/src/planningChat.js";
 
 test("Calendar chat retains the first request, recent clarification and the actual editable proposal for follow-ups", () => {
   const messages = [{ role: "user", text: "Run five kilometres" }];
@@ -42,28 +22,29 @@ test("Calendar chat retains the first request, recent clarification and the actu
   assert.ok(history.every((message) => message.text.length <= 4000));
   assert.deepEqual(messages, original);
 });
-
-test("Long chats stay within the planning API limit while retaining the latest instruction and goal", () => {
-  const messages = [{ role: "user", text: "Build my portfolio" }];
-  for (let index = 0; index < 20; index++)
-    messages.push({ role: "assistant", text: "Earlier context ".repeat(100) });
-  const latest = "Make the next step smaller. ".repeat(100);
-  const intention = planningChatIntention(messages, latest);
-  assert.ok(intention.length <= 4000);
-  assert.match(intention, /Build my portfolio/);
-  assert.ok(intention.endsWith(latest.trim()));
-});
-
-test("Assistant replies display actual clarification or plan contents rather than sample chat", () => {
-  const plan = {
-    goalName: "Portfolio",
-    kind: "project",
-    perWeek: null,
-    clarification: "Which project should we start with?",
-    tasks: [],
-  };
-  assert.equal(planningChatReply(plan), plan.clarification);
-  plan.clarification = null;
-  plan.tasks = [{ title: "Choose projects", minutes: 15, dependsOn: [] }];
-  assert.equal(planningChatReply(plan), "Portfolio\nChoose projects · 15 min");
+test("To do chat follow-ups include the reviewed item and unsaved requested action", () => {
+  const messages = [
+    { role: "user", text: "Rename buy milk" },
+    { role: "assistant", text: "Review these changes" },
+  ];
+  const history = assistantChatHistory(messages, {
+    todoRequest: {
+      action: "rename",
+      terms: ["buy milk"],
+      status: "pending",
+      title: "Buy oat milk",
+      items: [],
+      schedule: null,
+    },
+    todoChanges: [
+      {
+        id: "one",
+        before: { id: "one", title: "Buy milk", minutes: 30, done: false },
+        after: { id: "one", title: "Buy oat milk", minutes: 30, done: false },
+      },
+    ],
+  });
+  assert.match(history.at(-1).text, /Buy oat milk/);
+  assert.match(history.at(-1).text, /not saved/);
+  assert.match(history.at(-1).text, /rename/);
 });

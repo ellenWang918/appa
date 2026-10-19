@@ -30,7 +30,7 @@ export function FloatingChat({
   state: CalendarState;
   onReference: (reference: CalendarReference) => void;
   onReviewEvent: (event: TaskEdit) => void;
-  onApply: (proposalId: string) => Promise<void>;
+  onApply: (proposalId: string, kind: "calendar" | "todos") => Promise<void>;
 }) {
   const t = useInterfaceText();
   const guard = useActionGuard();
@@ -50,13 +50,6 @@ export function FloatingChat({
   const lock = useRef(false);
   const conversationId = useId();
   const errorId = useId();
-  function open() {
-    if (!active)
-      onActivate(() => {
-        setStarted(true);
-        setActive(true);
-      });
-  }
   useEffect(() => {
     if (!active) return;
     const outside = (event: PointerEvent) => {
@@ -107,7 +100,11 @@ export function FloatingChat({
         model,
       });
       setResult(response);
-      setSelection([]);
+      setSelection(
+        response.kind === "todo_selection" && response.todos?.length === 1
+          ? [response.todos[0].id]
+          : [],
+      );
       setIntention(text);
       setMessages([
         ...conversation,
@@ -129,11 +126,14 @@ export function FloatingChat({
     setError("");
     try {
       await flushCalendar(state);
-      const response = await api("calendar/preview", {
-        scope: storageScope(),
-        selectionId: result.selectionId,
-        ids: selection,
-      });
+      const response = await api(
+        result.kind === "todo_selection" ? "todos/preview" : "calendar/preview",
+        {
+          scope: storageScope(),
+          selectionId: result.selectionId,
+          ids: selection,
+        },
+      );
       setResult(response);
       setMessages((previous) => [
         ...previous,
@@ -152,13 +152,25 @@ export function FloatingChat({
     setBusy(true);
     setError("");
     try {
-      await onApply(result.proposalId);
+      const todo = result.kind === "todo_proposal";
+      await onApply(result.proposalId, todo ? "todos" : "calendar");
       setResult(null);
       setMessages((previous) => [
         ...previous,
         {
           role: "assistant",
-          text: "Your approved changes were applied together. Use Undo to restore the previous schedule.",
+          text: todo
+            ? "Your approved to do changes were applied together. Use Undo to restore them.\n" +
+              (result.todoChanges ?? [])
+                .map((change) =>
+                  change.event
+                    ? `${change.before?.title}: scheduled ${change.event.date} at ${change.event.allDay ? "All day" : time(change.event.start)}`
+                    : !change.after
+                      ? `${change.before?.title}: removed`
+                      : `${change.after.title}: ${change.after.done ? "completed" : "pending"}`,
+                )
+                .join("\n")
+            : "Your approved changes were applied together. Use Undo to restore the previous schedule.",
         },
       ]);
     } catch (error) {
@@ -199,7 +211,7 @@ export function FloatingChat({
             {!messages.length && auth.connection?.connected && (
               <p className="small muted">
                 {t(
-                  "Plan a goal, ask about your calendar, or rearrange upcoming tasks. Review changes before applying them.",
+                  "Plan a goal, manage your To do list, ask about your calendar, or rearrange tasks. Review changes before applying them.",
                 )}
               </p>
             )}
@@ -294,6 +306,105 @@ export function FloatingChat({
                 </button>
               </fieldset>
             )}
+            {result?.kind === "todo_answer" && !!result.todos?.length && (
+              <ul className="chat-todo-results">
+                {result.todos.map((todo) => (
+                  <li key={todo.id}>
+                    <strong>{todo.title}</strong>
+                    <small>{todo.done ? t("Completed") : t("Pending")}</small>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {result?.kind === "todo_selection" && (
+              <fieldset className="chat-calendar-selection">
+                <legend>{t("To dos to change")}</legend>
+                {result.todos?.map((todo) => (
+                  <label key={todo.id}>
+                    <input
+                      type="checkbox"
+                      checked={selection.includes(todo.id)}
+                      disabled={busy}
+                      onChange={(event) =>
+                        setSelection((ids) =>
+                          event.target.checked
+                            ? [...ids, todo.id]
+                            : ids.filter((id) => id !== todo.id),
+                        )
+                      }
+                    />
+                    <span>
+                      {todo.title}
+                      <small>{todo.done ? t("Completed") : t("Pending")}</small>
+                    </span>
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={
+                    busy ||
+                    !selection.length ||
+                    (["rename", "schedule"].includes(
+                      result.todoRequest?.action ?? "",
+                    ) &&
+                      selection.length !== 1)
+                  }
+                  onClick={() => void preview()}
+                >
+                  {t("Review to do changes")}
+                </button>
+                {["rename", "schedule"].includes(
+                  result.todoRequest?.action ?? "",
+                ) && (
+                  <p className="small muted">
+                    {t("Choose one item for this change.")}
+                  </p>
+                )}
+              </fieldset>
+            )}
+            {result?.kind === "todo_proposal" && (
+              <div className="chat-move-proposal">
+                <ul>
+                  {result.todoChanges?.map((change) => (
+                    <li key={change.id}>
+                      <strong>
+                        {change.after?.title ?? change.before?.title}
+                      </strong>
+                      <span>
+                        {change.event
+                          ? `${t("Schedule")}: ${change.event.date} · ${change.event.allDay ? t("All day") : `${time(change.event.start)}–${time(change.event.start + change.event.minutes)}`}`
+                          : !change.before
+                            ? t("Add to To do list")
+                            : !change.after
+                              ? t("Remove from To do list")
+                              : change.before.title !== change.after.title
+                                ? `${change.before.title} → ${change.after.title}`
+                                : change.after.done
+                                  ? t("Mark as complete")
+                                  : t("Mark as incomplete")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => void apply()}
+                >
+                  {t("Apply to do changes")}
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => setResult(null)}
+                >
+                  {t("Cancel changes")}
+                </button>
+              </div>
+            )}
             {result?.kind === "answer" && result.references.length > 0 && (
               <div className="chat-event-references">
                 {result.references.map((ref) => (
@@ -380,8 +491,15 @@ export function FloatingChat({
         className="planning-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!active) open();
-          else void send();
+          if (lock.current || (auth.connection?.connected && !input.trim()))
+            return;
+          if (active) void send();
+          else
+            onActivate(() => {
+              setStarted(true);
+              setActive(true);
+              void send();
+            });
         }}
       >
         <input
@@ -395,21 +513,22 @@ export function FloatingChat({
           readOnly={busy}
           maxLength={3600}
           placeholder={t("Tell Appa what you want to do…")}
-          onClick={open}
           onChange={(event) => setInput(event.target.value)}
         />
         <IconButton
-          showTooltip={false}
+          showTooltip={!auth.connection?.connected}
           type="submit"
           aria-expanded={active}
           aria-controls={started ? conversationId : undefined}
-          aria-label={active ? t("Send message") : t("Open chat")}
+          aria-label={t(
+            auth.connection?.connected
+              ? "Send message"
+              : "Sign in to ChatGPT first",
+          )}
           disabled={
-            active &&
-            (busy ||
-              !input.trim() ||
-              !auth.connection?.connected ||
-              !auth.connection.models.length)
+            busy ||
+            (!!auth.connection?.connected &&
+              (!input.trim() || !auth.connection.models.length))
           }
         >
           <ArrowUp size={19} weight="bold" />

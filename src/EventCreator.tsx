@@ -18,6 +18,7 @@ export function EventCreator({
   onClose,
   onDraftChange,
   onSave,
+  onSaveTodo,
 }: {
   draft: EventDraft;
   anchor: HTMLElement | null;
@@ -25,8 +26,9 @@ export function EventCreator({
   today: string;
   timezone: string;
   onClose: (restoreFocus?: boolean) => void;
-  onDraftChange: (changes: Partial<TaskEdit>) => void;
+  onDraftChange: (changes: Partial<EventDraft>) => void;
   onSave: (event: TaskEdit) => void;
+  onSaveTodo: (title: string) => void;
 }) {
   const t = useInterfaceText();
   const guard = useActionGuard();
@@ -51,6 +53,7 @@ export function EventCreator({
     endTime,
     allDay: !!draft.allDay,
     repeat: draft.repeat ?? "none",
+    unscheduled: !!draft.unscheduled,
   });
   const minuteFor = (value: string) => {
     const [hour, minute] = value.split(":").map(Number);
@@ -119,6 +122,10 @@ export function EventCreator({
           event.preventDefault();
           try {
             const values = new FormData(event.currentTarget);
+            if (draft.unscheduled) {
+              onSaveTodo(String(values.get("title")).trim() || t("New event"));
+              return;
+            }
             const from = minuteFor(startTime);
             const to = minuteFor(endTime);
             onSave({
@@ -148,86 +155,109 @@ export function EventCreator({
             maxLength={180}
           />
         </label>
-        <AllDayToggle
-          checked={!!draft.allDay}
-          onChange={(allDay) => {
-            setError("");
-            onDraftChange({ allDay });
-          }}
-        />
-        <label className="field">
-          {t("Date")}
+        <label className="event-schedule-toggle">
           <input
-            type="date"
-            name="date"
-            value={date}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDate(value);
-              if (value) onDraftChange({ date: value });
-            }}
-            required
+            type="checkbox"
+            checked={!draft.unscheduled}
+            disabled={!!draft.todoId}
+            onChange={(event) =>
+              onDraftChange({ unscheduled: !event.target.checked })
+            }
           />
+          {t("Set date and time")}
         </label>
-        {!draft.allDay && (
-          <div className="two-fields">
+        {draft.unscheduled && (
+          <p className="small muted">
+            {t("Saved in your To do list until you’re ready to schedule it.")}
+          </p>
+        )}
+        {!draft.unscheduled && (
+          <>
+            <AllDayToggle
+              checked={!!draft.allDay}
+              onChange={(allDay) => {
+                setError("");
+                onDraftChange({ allDay });
+              }}
+            />
             <label className="field">
-              {t("Start time")}
+              {t("Date")}
               <input
-                type="time"
-                name="start"
-                value={startTime}
-                required
+                type="date"
+                name="date"
+                value={date}
                 onChange={(event) => {
                   const value = event.target.value;
-                  if (value && startTime && endTime) {
-                    const previousStart = minuteFor(startTime);
-                    const previousEnd = minuteFor(endTime) || 1440;
-                    const duration = Math.max(5, previousEnd - previousStart);
-                    const end = Math.min(1440, minuteFor(value) + duration);
-                    const nextEnd = clockTime(end % 1440);
-                    setEndTime(nextEnd);
-                    updateTime(value, nextEnd);
-                  } else {
-                    updateTime(value, endTime);
-                  }
-                  setStartTime(value);
+                  setDate(value);
+                  if (value) onDraftChange({ date: value });
                 }}
-              />
-            </label>
-            <label className="field">
-              {t("End time")}
-              <input
-                type="time"
-                name="end"
-                value={endTime}
                 required
-                onChange={(event) => {
-                  setEndTime(event.target.value);
-                  updateTime(startTime, event.target.value);
-                }}
               />
             </label>
-          </div>
-        )}
-        <EventRepeatSelect
-          value={draft.repeat ?? "none"}
-          onChange={(repeat) => {
-            setError("");
-            onDraftChange({ repeat });
-          }}
-        />
-        {draft.allDay && (
-          <p className="small muted">
-            {t("Moves to the All day row when saved.")}
-          </p>
-        )}
-        {!draft.allDay && (
-          <p className="small muted event-timezone">
-            {t("Times are in {timezone}.", {
-              timezone: timezone.replaceAll("_", " "),
-            })}
-          </p>
+            {!draft.allDay && (
+              <div className="two-fields">
+                <label className="field">
+                  {t("Start time")}
+                  <input
+                    type="time"
+                    name="start"
+                    value={startTime}
+                    required
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value && startTime && endTime) {
+                        const previousStart = minuteFor(startTime);
+                        const previousEnd = minuteFor(endTime) || 1440;
+                        const duration = Math.max(
+                          5,
+                          previousEnd - previousStart,
+                        );
+                        const end = Math.min(1440, minuteFor(value) + duration);
+                        const nextEnd = clockTime(end % 1440);
+                        setEndTime(nextEnd);
+                        updateTime(value, nextEnd);
+                      } else {
+                        updateTime(value, endTime);
+                      }
+                      setStartTime(value);
+                    }}
+                  />
+                </label>
+                <label className="field">
+                  {t("End time")}
+                  <input
+                    type="time"
+                    name="end"
+                    value={endTime}
+                    required
+                    onChange={(event) => {
+                      setEndTime(event.target.value);
+                      updateTime(startTime, event.target.value);
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+            <EventRepeatSelect
+              value={draft.repeat ?? "none"}
+              onChange={(repeat) => {
+                setError("");
+                onDraftChange({ repeat });
+              }}
+            />
+            {draft.allDay && (
+              <p className="small muted">
+                {t("Moves to the All day row when saved.")}
+              </p>
+            )}
+            {!draft.allDay && (
+              <p className="small muted event-timezone">
+                {t("Times are in {timezone}.", {
+                  timezone: timezone.replaceAll("_", " "),
+                })}
+              </p>
+            )}
+          </>
         )}
         {error && (
           <p id={errorId} className="inline-error" role="alert">
@@ -243,7 +273,7 @@ export function EventCreator({
             {t("Cancel")}
           </button>
           <button type="submit" className="task-card-primary">
-            {t("Save event")}
+            {draft.unscheduled ? t("Add to To do list") : t("Save event")}
           </button>
         </div>
       </form>

@@ -12,6 +12,8 @@ import type {
   Task,
   TaskEdit,
   CalendarMove,
+  Todo,
+  TodoMutation,
 } from "./types.js";
 import {
   DEFAULT_CALENDAR_PREFERENCES,
@@ -115,14 +117,14 @@ export const addDays = (date: string, count: number) =>
   new Date(Date.parse(date + "T12:00:00Z") + count * 86400000)
     .toISOString()
     .slice(0, 10);
-export function monday(date: string) {
-  return weekStart(date, 1);
-}
 export function weekStart(date: string, startsOn = 1) {
   return addDays(
     date,
     -((new Date(date + "T12:00:00Z").getUTCDay() - startsOn + 7) % 7),
   );
+}
+export function isWeekend(date: string) {
+  return [0, 6].includes(new Date(date + "T12:00:00Z").getUTCDay());
 }
 export const dateLabel = (
   date: string,
@@ -554,7 +556,7 @@ export function editTask(
       if (series)
         stopSeriesFrom(next, series, task.eventOccurrenceDate!, task.id);
     }
-    validateEvent(next, edit, today, task.id);
+    validateEvent(next, edit, task.id);
     if (repeat !== (series?.repeat ?? "none") && repeat !== "none")
       attachEventSeries(next, task, edit, repeat);
     Object.assign(task, eventDetails(edit));
@@ -638,7 +640,6 @@ export function editTask(
 function validateEvent(
   state: CalendarState,
   event: TaskEdit,
-  today: string,
   ignoreId: string | null = null,
 ) {
   if (
@@ -839,7 +840,7 @@ export function createEvent(
 ) {
   if (typeof event.title === "string" && !event.title.trim())
     event = { ...event, title: "New event" };
-  validateEvent(state, event, today);
+  validateEvent(state, event);
   const next = copy(state);
   if (!personalCalendarFor(next))
     next.personalCalendar = {
@@ -880,6 +881,101 @@ export function removeEvent(state: CalendarState, eventId: string) {
     series.excludedDates.push(event.eventOccurrenceDate);
   delete next.choices[`${event.date}/${event.slotId}`];
   return commit(state, next, "Event deleted");
+}
+export function addTodo(state: CalendarState, title: string, minutes = 30) {
+  if (typeof title !== "string" || !title.trim() || title.trim().length > 180)
+    throw new Error("Enter a task name of 1–180 characters.");
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 1440)
+    throw new Error("Choose a duration of 5–1440 minutes.");
+  const next = copy(state);
+  next.todos = [
+    ...(next.todos ?? []),
+    { id: id(), title: title.trim(), minutes, done: false },
+  ];
+  return commit(state, next, "To do added");
+}
+export function toggleTodo(state: CalendarState, todoId: string) {
+  const next = copy(state);
+  const todo = next.todos?.find((item) => item.id === todoId);
+  if (!todo) throw new Error("This to do is no longer available.");
+  todo.done = !todo.done;
+  return commit(state, next, todo.done ? "To do completed" : "To do reopened");
+}
+export function applyTodoMutations(
+  state: CalendarState,
+  mutations: TodoMutation[],
+  today = localDate(state.settings.timezone),
+) {
+  if (!Array.isArray(mutations) || !mutations.length || mutations.length > 100)
+    throw new Error("Choose 1–100 to do changes.");
+  const ids = mutations.flatMap((item) =>
+    item.action === "add" ? [] : [item.id],
+  );
+  if (new Set(ids).size !== ids.length)
+    throw new Error("Choose each to do only once.");
+  let next = copy(state);
+  for (const mutation of mutations) {
+    if (mutation.action === "add") {
+      next = addTodo(next, mutation.title, mutation.minutes);
+      continue;
+    }
+    const todo = next.todos?.find((item) => item.id === mutation.id);
+    if (!todo) throw new Error("This to do is no longer available.");
+    if (mutation.action === "schedule") {
+      next = scheduleTodo(
+        next,
+        todo.id,
+        mutation.event.date,
+        mutation.event.start,
+        today,
+        !!mutation.event.allDay,
+        mutation.event,
+      );
+    } else if (mutation.action === "delete") {
+      next.todos = next.todos!.filter((item) => item.id !== mutation.id);
+    } else if (mutation.action === "rename") {
+      if (
+        typeof mutation.title !== "string" ||
+        !mutation.title.trim() ||
+        mutation.title.trim().length > 180
+      )
+        throw new Error("Enter a task name of 1–180 characters.");
+      todo.title = mutation.title.trim();
+    } else if (mutation.action === "complete" || mutation.action === "reopen") {
+      todo.done = mutation.action === "complete";
+    } else throw new Error("This to do action is not supported.");
+  }
+  validateBackup(next, today);
+  return commit(state, next, "To do list updated");
+}
+export function scheduleTodo(
+  state: CalendarState,
+  todoId: string,
+  date: string,
+  start: number,
+  today = localDate(state.settings.timezone),
+  allDay = false,
+  details?: TaskEdit,
+) {
+  const todo = state.todos?.find((item) => item.id === todoId);
+  if (!todo || todo.done)
+    throw new Error("Only unfinished to dos can be scheduled.");
+  const next = createEvent(
+    state,
+    details ?? {
+      title: todo.title,
+      date,
+      start: allDay ? 0 : start,
+      minutes: allDay ? 1440 : todo.minutes,
+      ...(allDay ? { allDay: true } : {}),
+    },
+    today,
+  );
+  next.tasks[next.tasks.length - 1].id = todo.id;
+  next.todos = next.todos?.filter((item) => item.id !== todoId);
+  if (next.personalCalendar) next.personalCalendar.visible = true;
+  next.undo!.label = "To do scheduled";
+  return next;
 }
 export function selectChoice(
   state: CalendarState,
@@ -1777,6 +1873,9 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
     sample: !!raw.sample,
     goals,
     tasks,
+    ...(raw.todos !== undefined
+      ? { todos: validateTodos(raw.todos, tasks) }
+      : {}),
     ...(eventSeries ? { eventSeries } : {}),
     settings,
     choices: {},
@@ -1790,6 +1889,34 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
       next.choices[key] = value;
   validateRepeatConflicts(next, today);
   return next;
+}
+function validateTodos(input: unknown, tasks: Task[]): Todo[] {
+  if (!Array.isArray(input))
+    throw new Error("The backup contains an invalid to do list.");
+  const seen = new Set(tasks.map((task) => task.id));
+  return input.map((todo) => {
+    if (
+      !todo ||
+      typeof todo.id !== "string" ||
+      !todo.id ||
+      seen.has(todo.id) ||
+      typeof todo.title !== "string" ||
+      !todo.title.trim() ||
+      todo.title.length > 180 ||
+      typeof todo.done !== "boolean" ||
+      !Number.isInteger(todo.minutes) ||
+      todo.minutes < 5 ||
+      todo.minutes > 1440
+    )
+      throw new Error("The backup contains an invalid to do list.");
+    seen.add(todo.id);
+    return {
+      id: todo.id,
+      title: todo.title,
+      minutes: todo.minutes,
+      done: todo.done,
+    };
+  });
 }
 function validDate(date: unknown): date is string {
   return (

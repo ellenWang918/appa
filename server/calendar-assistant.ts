@@ -8,6 +8,7 @@ import type {
   Task,
 } from "../src/types.js";
 import type { CalendarStore } from "./calendar-store.js";
+import { validateTodoRequest } from "./todo-assistant.js";
 import {
   addDays,
   localDate,
@@ -44,7 +45,7 @@ export function validateIntent(
     );
   const intent = input as AssistantIntent;
   if (
-    !["clarify", "goal", "event", "search", "reschedule"].includes(
+    !["clarify", "goal", "event", "search", "reschedule", "todo"].includes(
       intent.kind,
     ) ||
     typeof intent.message !== "string" ||
@@ -63,6 +64,7 @@ export function validateIntent(
       throw new Error("The event proposal is missing. Try again.");
     createEvent(state, intent.event);
   }
+  if (intent.kind === "todo") intent.todo = validateTodoRequest(intent.todo);
   if (["search", "reschedule"].includes(intent.kind)) {
     const query = intent.query;
     if (
@@ -107,6 +109,7 @@ export function validateIntent(
     ...intent,
     plan: intent.kind === "goal" ? intent.plan : null,
     event: intent.kind === "event" ? intent.event : null,
+    todo: intent.kind === "todo" ? intent.todo : null,
   };
 }
 const matches = (text: string, terms: string[]) =>

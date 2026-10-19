@@ -27,7 +27,8 @@ import { useHolidayCalendar } from "./useHolidayCalendar";
 import { holidayLabel } from "./holidayDates";
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import type { CalendarView } from "./CalendarViews";
-import type { CalendarState, EventDraft, Slot, Task, TaskEdit } from "./types";
+import type { CalendarState, EventDraft, Slot, Task, Todo } from "./types";
+import { TodoPanel } from "./TodoPanel";
 import { errorMessage } from "./errors";
 import {
   ArrowRight,
@@ -40,11 +41,13 @@ import {
   LockSimple,
   Laptop,
   List,
+  ListChecks,
   Plus,
   Sparkle,
   X,
 } from "@phosphor-icons/react";
 import * as cal from "./calendar";
+import { moveTimelineTask, resizeTimelineTask } from "./timelineDrag";
 import { Planner, Settings, GoalDetails } from "./Dialogs";
 import { Dialog, Dot, IconButton } from "./ui";
 import { TaskCard } from "./TaskCard";
@@ -182,6 +185,8 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
   const guard = useActionGuard();
   const applyingRef = useRef(false);
   const [calendarApplying, setCalendarApplying] = useState(false);
+  const [draggedTodo, setDraggedTodo] = useState<Todo | null>(null);
+  const [todoPanelOpen, setTodoPanelOpen] = useState(true);
   const [destructiveName, setDestructiveName] = useState("");
   const [state, setState] = useState(initial.state),
     [saveError, setSaveError] = useState(initial.error),
@@ -418,6 +423,41 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
       setDetailsOpen(true);
     });
   }
+  function moveCard(
+    task: Task,
+    date: string,
+    start: number,
+    minutes = task.minutes,
+  ) {
+    guard.request(() => {
+      try {
+        const previous = latestState.current;
+        const next =
+          minutes === task.minutes
+            ? moveTimelineTask(previous, task, date, start, today)
+            : resizeTimelineTask(previous, task, start, minutes, today);
+        if (next === previous) return;
+        latestState.current = next;
+        setState(next);
+        setEventDraft(null);
+        setDetailsOpen(false);
+        setTaskAnchor(null);
+        setSelectedTask(task.id);
+        setSelectedDay(date);
+        setMiniMonth(monthStart(date));
+        setError("");
+        setNotice(
+          minutes !== task.minutes
+            ? t("Duration updated.")
+            : task.goalId === null
+              ? t("Event moved.")
+              : t("Task moved."),
+        );
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    });
+  }
   function openEvent(
     date = selectedDay,
     start?: number,
@@ -457,12 +497,67 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
       if (restoreFocus) eventTrigger.current?.focus({ preventScroll: true });
     });
   }
-  function updateEventDraft(changes: Partial<TaskEdit>) {
+  function updateEventDraft(changes: Partial<EventDraft>) {
     if (changes.date && changes.date !== eventDraft?.date)
       selectDate(changes.date, false);
     setEventDraft((previous) =>
       previous ? { ...previous, ...changes } : null,
     );
+  }
+  function addTodo(title: string) {
+    const next = cal.addTodo(latestState.current, title);
+    latestState.current = next;
+    setState(next);
+    setError("");
+    setNotice(t("Added to To do list."));
+  }
+  function scheduleTodo(
+    todo: Todo,
+    date: string,
+    start: number,
+    allDay = false,
+  ) {
+    setDraggedTodo(null);
+    guard.request(() => {
+      try {
+        const next = cal.scheduleTodo(
+          latestState.current,
+          todo.id,
+          date,
+          start,
+          today,
+          allDay,
+        );
+        latestState.current = next;
+        setState(next);
+        setEventDraft(null);
+        setDetailsOpen(false);
+        setTaskAnchor(null);
+        setSelectedDay(date);
+        setMiniMonth(monthStart(date));
+        setSelectedTask(todo.id);
+        setError("");
+        setNotice(t("To do scheduled."));
+      } catch (caught) {
+        setError(errorMessage(caught));
+      }
+    });
+  }
+  function openTodoSchedule(todo: Todo, trigger: HTMLElement) {
+    guard.request(() => {
+      openEvent(selectedDay, undefined, trigger);
+      setEventDraft((previous) =>
+        previous
+          ? {
+              ...previous,
+              title: todo.title,
+              minutes: todo.minutes,
+              start: Math.min(previous.start, 1440 - todo.minutes),
+              todoId: todo.id,
+            }
+          : null,
+      );
+    });
   }
   async function readImport(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -509,6 +604,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
             holidays={holidays}
             onMonth={setMiniMonth}
             onSelect={selectDate}
+            onToday={goToday}
           />
           <button
             className="rail-plan-button primary"
@@ -687,6 +783,9 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                 >
                   <CaretLeft size={15} />
                 </IconButton>
+                <button className="today-button" onClick={goToday}>
+                  {t("Today")}
+                </button>
                 <IconButton
                   className="icon-button"
                   aria-label={t("Next {v0}", { v0: view })}
@@ -695,9 +794,6 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   <CaretRight size={15} />
                 </IconButton>
               </div>
-              <button className="today-button" onClick={goToday}>
-                {t("Today")}
-              </button>
               <nav className="view-tabs" aria-label={t("Calendar view")}>
                 {(["day", "week", "month", "year"] as const).map((mode) => (
                   <button
@@ -728,6 +824,19 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   </button>
                 ))}
               </nav>
+              <IconButton
+                className="todo-panel-toggle"
+                aria-label={t("To do list")}
+                aria-expanded={todoPanelOpen}
+                aria-controls="todo-list-panel"
+                onClick={() => {
+                  setDraggedTodo(null);
+                  setTodoPanelOpen((open) => !open);
+                }}
+              >
+                <ListChecks size={17} aria-hidden="true" />
+                <span className="todo-toggle-label">{t("To do list")}</span>
+              </IconButton>
             </div>
           </header>
           {holidayError && (
@@ -788,6 +897,15 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   {t("Undo recovery")}
                 </button>
               )}
+              <IconButton
+                className="icon-button"
+                aria-label={t("Dismiss recovery notice")}
+                onClick={() =>
+                  setState((previous) => ({ ...previous, recovery: null }))
+                }
+              >
+                <X size={16} />
+              </IconButton>
             </div>
           )}
           <div className="workspace">
@@ -806,7 +924,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
               {view === "week" ? (
                 <CalendarTimeline
                   dates={days}
-                  state={displayState}
+                  state={state}
                   selectedDay={selectedDay}
                   selectedTask={selectedTask}
                   today={today}
@@ -814,6 +932,9 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   currentMinute={currentMinute}
                   onDate={selectDate}
                   onSlot={openSlot}
+                  onMove={moveCard}
+                  draggedTodo={draggedTodo}
+                  onScheduleTodo={scheduleTodo}
                   onCreate={openEvent}
                   draft={eventDraft}
                   onDraftAnchor={setEventAnchor}
@@ -835,6 +956,8 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   }
                   onSlot={openSlot}
                   onCreate={openEvent}
+                  draggedTodo={draggedTodo}
+                  onScheduleTodo={scheduleTodo}
                   draft={eventDraft}
                   onDraftAnchor={setEventAnchor}
                   onVisibleMonth={showVisibleMonth}
@@ -874,7 +997,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                     {days.map((date) => (
                       <button
                         key={date}
-                        className={`day-date-button ${date === selectedDay ? "selected" : ""} ${date === today ? "is-today" : ""} ${[0, 6].includes(new Date(date + "T12:00:00Z").getUTCDay()) ? "is-weekend" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
+                        className={`day-date-button ${date === selectedDay ? "selected" : ""} ${date === today ? "is-today" : ""} ${cal.isWeekend(date) ? "is-weekend" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
                         aria-label={t("View {v0}", {
                           v0: cal.dateLabel(
                             date,
@@ -910,7 +1033,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                     <div className="day-timeline">
                       <CalendarTimeline
                         dates={[selectedDay]}
-                        state={displayState}
+                        state={state}
                         selectedDay={selectedDay}
                         selectedTask={selectedTask}
                         today={today}
@@ -918,6 +1041,9 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                         currentMinute={currentMinute}
                         onDate={selectDate}
                         onSlot={openSlot}
+                        onMove={moveCard}
+                        draggedTodo={draggedTodo}
+                        onScheduleTodo={scheduleTodo}
                         onCreate={openEvent}
                         draft={eventDraft}
                         onDraftAnchor={setEventAnchor}
@@ -1049,15 +1175,18 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                     );
                   })
                 }
-                onApply={async (proposalId) => {
+                onApply={async (proposalId, kind) => {
                   applyingRef.current = true;
                   setCalendarApplying(true);
                   try {
                     await flushCalendar(latestState.current);
-                    const saved = await api("calendar/apply", {
-                      scope: storageScope(),
-                      proposalId,
-                    });
+                    const saved = await api(
+                      kind === "todos" ? "todos/apply" : "calendar/apply",
+                      {
+                        scope: storageScope(),
+                        proposalId,
+                      },
+                    );
                     if (!saved.state)
                       throw new Error(
                         "The calendar changes could not be loaded. Reopen Appa.",
@@ -1065,7 +1194,11 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                     acceptStoredCalendar(saved);
                     latestState.current = saved.state;
                     setState(saved.state);
-                    setNotice("Calendar replanned.");
+                    setNotice(
+                      kind === "todos"
+                        ? "To do list updated."
+                        : "Calendar replanned.",
+                    );
                   } finally {
                     applyingRef.current = false;
                     setCalendarApplying(false);
@@ -1089,6 +1222,20 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                 }
               />
             </main>
+            <TodoPanel
+              open={todoPanelOpen}
+              todos={state.todos ?? []}
+              color={cal.personalCalendarFor(state)?.color ?? "slate"}
+              onAdd={addTodo}
+              onToggle={(id) =>
+                change(
+                  (previous) => cal.toggleTodo(previous, id),
+                  t("To do updated."),
+                )
+              }
+              onDrag={setDraggedTodo}
+              onSchedule={openTodoSchedule}
+            />
           </div>
         </div>
         {detailsOpen && cardTask && (
@@ -1146,8 +1293,22 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
             timezone={state.settings.timezone}
             onClose={closeEvent}
             onDraftChange={updateEventDraft}
+            onSaveTodo={(title) => {
+              addTodo(title);
+              guard.run(() => closeEvent(true));
+            }}
             onSave={(event) => {
-              const next = cal.createEvent(state, event, today);
+              const next = eventDraft.todoId
+                ? cal.scheduleTodo(
+                    state,
+                    eventDraft.todoId,
+                    event.date,
+                    event.start,
+                    today,
+                    !!event.allDay,
+                    event,
+                  )
+                : cal.createEvent(state, event, today);
               setState(next);
               setError("");
               setNotice(t("Event created."));
@@ -1243,11 +1404,14 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
           <Settings
             state={state}
             onClose={() => guard.request(() => setModal(null))}
-            onSave={(settings) => {
-              setState(
-                cal.updateSettings(state, settings, dayFor(settings.timezone)),
+            onChange={(settings) => {
+              const next = cal.updateSettings(
+                latestState.current,
+                settings,
+                dayFor(settings.timezone),
               );
-              setModal(null);
+              latestState.current = next;
+              setState(next);
               setNotice("Settings saved.");
             }}
             onExport={() => download(state)}
@@ -1374,6 +1538,12 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   })}
                 </p>
               )}
+              <p>
+                {t(
+                  "This also replaces your current To do list. The backup includes {count} to dos.",
+                  { count: pendingImport.todos?.length ?? 0 },
+                )}
+              </p>
               <p className="muted">
                 {t("Undo is available until your next change or reload.")}
               </p>
@@ -1437,6 +1607,9 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                   "Clear all goals, events, repeating series, completed history and saved choices. Export a backup first if you want to keep them. Undo is available until your next change or reload.",
                 )}
               </p>
+              {!!state.todos?.length && (
+                <p>{t("Your To do list will also be cleared.")}</p>
+              )}
               <button
                 type="button"
                 className="text-button"

@@ -281,7 +281,7 @@ const YearMonths = memo(function YearMonths({
                     )}
                     {inMonth ? (
                       <button
-                        className={`year-day ${scheduledDates.has(date) ? "has-events" : ""}`}
+                        className={`year-day ${scheduledDates.has(date) ? "has-events" : ""} ${cal.isWeekend(date) ? "is-weekend" : ""}`}
                         aria-label={t("View {v0}", { v0: dateLabel })}
                         aria-description={context || undefined}
                         aria-current={date === today ? "date" : undefined}

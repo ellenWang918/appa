@@ -1,7 +1,7 @@
 import { IconButton } from "./ui";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { EventReservation } from "./EventReservation";
-import type { EventDraft } from "./types";
+import type { EventDraft, Todo } from "./types";
 import { CaretLeft, CaretRight, Check } from "@phosphor-icons/react";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -57,6 +57,7 @@ export function MiniCalendar({
   holidays,
   onMonth,
   onSelect,
+  onToday,
 }: {
   month: string;
   selectedDay: string;
@@ -65,6 +66,7 @@ export function MiniCalendar({
   holidays: HolidayLookup;
   onMonth: (month: string) => void;
   onSelect: (date: string) => void;
+  onToday: () => void;
 }) {
   const t = useInterfaceText();
   const dates = monthDays(month, settings.weekStartsOn);
@@ -85,6 +87,9 @@ export function MiniCalendar({
           >
             <CaretLeft size={13} />
           </IconButton>
+          <button className="today-button" type="button" onClick={onToday}>
+            {t("Today")}
+          </button>
           <IconButton
             className="icon-button"
             aria-label={t("Next month")}
@@ -121,7 +126,7 @@ export function MiniCalendar({
               {dates.slice(weekIndex * 7, weekIndex * 7 + 7).map((date) => (
                 <button
                   key={date}
-                  className={`${monthStart(date) !== monthStart(month) ? "outside-month" : ""} ${date === today ? "is-today" : ""} ${holidays(date).length ? "has-holiday" : ""}`}
+                  className={`${monthStart(date) !== monthStart(month) ? "outside-month" : ""} ${date === today ? "is-today" : ""} ${holidays(date).length ? "has-holiday" : ""} ${cal.isWeekend(date) ? "is-weekend" : ""}`}
                   aria-label={cal.dateLabel(
                     date,
                     {
@@ -162,6 +167,8 @@ export function MonthCalendar({
   onDraftAnchor,
   onVisibleMonth,
   scrollRequest,
+  draggedTodo,
+  onScheduleTodo,
 }: {
   month: string;
   state: CalendarState;
@@ -175,8 +182,16 @@ export function MonthCalendar({
   onDraftAnchor: (element: HTMLElement | null) => void;
   onVisibleMonth: (month: string) => void;
   scrollRequest: number;
+  draggedTodo: Todo | null;
+  onScheduleTodo: (
+    todo: Todo,
+    date: string,
+    start: number,
+    allDay?: boolean,
+  ) => void;
 }) {
   const t = useInterfaceText();
+  const [dropDate, setDropDate] = useState<string | null>(null);
 
   const scroll = useRef<HTMLDivElement>(null);
   const position = useRef({ month, offset: 0 });
@@ -337,7 +352,30 @@ export function MonthCalendar({
                         </span>
                       )}
                       <section
-                        className={`month-cell ${monthStart(date) !== visibleMonth ? "outside-month" : ""} ${date === selectedDay ? "selected" : ""}`}
+                        className={`month-cell ${monthStart(date) !== visibleMonth ? "outside-month" : ""} ${date === selectedDay ? "selected" : ""}${cal.isWeekend(date) ? " is-weekend" : ""}${draggedTodo && dropDate === date ? " todo-drop-cell" : ""}`}
+                        data-goal-color={
+                          cal.personalCalendarFor(state)?.color ?? "slate"
+                        }
+                        onDragOver={(event) => {
+                          if (draggedTodo) {
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDropDate(date);
+                          }
+                        }}
+                        onDragLeave={(event) => {
+                          if (
+                            !(event.relatedTarget instanceof Node) ||
+                            !event.currentTarget.contains(event.relatedTarget)
+                          )
+                            setDropDate(null);
+                        }}
+                        onDrop={(event) => {
+                          if (!draggedTodo) return;
+                          event.preventDefault();
+                          setDropDate(null);
+                          onScheduleTodo(draggedTodo, date, 0, true);
+                        }}
                       >
                         <button
                           className="calendar-create-area"
@@ -414,6 +452,7 @@ export function MonthCalendar({
                           </button>
                         ))}
                         {draft?.date === date &&
+                          !draft.unscheduled &&
                           monthStart(date) === visibleMonth && (
                             <EventReservation
                               draft={draft}

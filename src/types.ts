@@ -1,5 +1,6 @@
 export type GoalColor = "indigo" | "teal" | "amber" | "rose" | "slate" | "clay";
 export type TaskStatus = "pending" | "done" | "skipped" | "consolidated";
+export type TimelineResizeEdge = "start" | "end";
 export type EventRepeat =
   "daily" | "weekly" | "fortnightly" | "monthly" | "yearly";
 export type EventRepeatChoice = EventRepeat | "none";
@@ -102,9 +103,42 @@ export interface TaskEdit {
   allDay?: boolean;
   repeat?: EventRepeatChoice;
 }
+export interface Todo {
+  id: string;
+  title: string;
+  minutes: number;
+  done: boolean;
+}
+export type TodoMutation =
+  | { action: "add"; title: string; minutes: number }
+  | { action: "rename"; id: string; title: string }
+  | { action: "complete" | "reopen" | "delete"; id: string }
+  | { action: "schedule"; id: string; event: TaskEdit };
+export interface TodoRequest {
+  action:
+    "list" | "add" | "rename" | "complete" | "reopen" | "delete" | "schedule";
+  terms: string[];
+  status: "pending" | "completed" | "all";
+  items: { title: string; minutes: number }[];
+  title: string | null;
+  schedule: {
+    date: string;
+    start: number;
+    minutes: number | null;
+    allDay: boolean;
+  } | null;
+}
+export interface TodoChange {
+  id: string;
+  before: Todo | null;
+  after: Todo | null;
+  event?: TaskEdit;
+}
 export interface EventDraft extends TaskEdit {
   id: string;
   reservationAllDay: boolean;
+  unscheduled?: boolean;
+  todoId?: string;
 }
 export interface GoalEdit {
   color?: GoalColor;
@@ -142,6 +176,7 @@ export interface CalendarState {
   settings: Settings;
   goals: Goal[];
   tasks: Task[];
+  todos?: Todo[];
   eventSeries?: EventSeries[];
   choices: Record<string, string>;
 }
@@ -188,6 +223,8 @@ export interface ApiRequests {
   };
   "calendar/preview": { scope: string; selectionId: string; ids: string[] };
   "calendar/apply": { scope: string; proposalId: string };
+  "todos/preview": { scope: string; selectionId: string; ids: string[] };
+  "todos/apply": { scope: string; proposalId: string };
   session: undefined;
   models: undefined;
   "auth/start": { accountId: string | null };
@@ -200,6 +237,8 @@ export interface ApiResponses {
   assistant: AssistantResult;
   "calendar/preview": AssistantResult;
   "calendar/apply": StoredCalendar;
+  "todos/preview": AssistantResult;
+  "todos/apply": StoredCalendar;
   session: SessionResponse;
   models: { models: Model[] };
   "auth/start": { url: string };
@@ -243,15 +282,25 @@ export interface CalendarQuery {
   completedOnly: boolean;
 }
 export interface AssistantIntent {
-  kind: "clarify" | "goal" | "event" | "search" | "reschedule";
+  kind: "clarify" | "goal" | "event" | "search" | "reschedule" | "todo";
   message: string;
   query: CalendarQuery;
   plan: Plan | null;
   event: TaskEdit | null;
   destination: { from: string; to: string; start: number; end: number };
+  todo?: TodoRequest | null;
 }
 export interface AssistantResult {
-  kind: "clarify" | "goal" | "event" | "answer" | "selection" | "proposal";
+  kind:
+    | "clarify"
+    | "goal"
+    | "event"
+    | "answer"
+    | "selection"
+    | "proposal"
+    | "todo_answer"
+    | "todo_selection"
+    | "todo_proposal";
   message: string;
   references: CalendarReference[];
   plan?: Plan;
@@ -259,4 +308,7 @@ export interface AssistantResult {
   selectionId?: string;
   proposalId?: string;
   moves?: CalendarMove[];
+  todos?: Todo[];
+  todoRequest?: TodoRequest;
+  todoChanges?: TodoChange[];
 }
