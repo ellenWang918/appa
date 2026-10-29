@@ -1,32 +1,22 @@
-import { api } from "./api";
-import {
-  initializeCalendarStorage,
-  saveCalendar,
-  acceptStoredCalendar,
-  flushCalendar,
-  storageScope,
-} from "./calendarStorage";
+import { initializeCalendarStorage } from "./calendarStorage";
 import { FloatingChat } from "./FloatingChat";
-import { CalendarSection } from "./CalendarSection";
+import { GoalNavigation } from "./GoalNavigation";
+import { useCalendarWorkspace } from "./useCalendarWorkspace";
+import { useCalendarNavigation } from "./useCalendarNavigation";
+import { useCalendarQueries } from "./useCalendarQueries";
 import { calendarReplacementIsHighImpact } from "./actionPatterns";
 import { ActionGuard, useActionGuard } from "./ActionGuard";
 import { useInterfaceText } from "./InterfaceLanguage";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import {
-  MiniCalendar,
-  MonthCalendar,
-  monthStart,
-  shiftMonth,
-  weekNumber,
-} from "./CalendarViews";
+import { MiniCalendar, MonthCalendar } from "./CalendarViews";
 import { CalendarTimeline } from "./CalendarTimeline";
 import { YearCalendar } from "./YearCalendar";
 import { ResizableDayPanels } from "./ResizableDayPanels";
 import { useHolidayCalendar } from "./useHolidayCalendar";
 import { holidayLabel } from "./holidayDates";
 import { InterfaceLanguage } from "./InterfaceLanguage";
-import type { CalendarView } from "./CalendarViews";
+import { monthStart, weekNumber } from "./calendarDates";
 import type { CalendarState, EventDraft, Slot, Task, Todo } from "./types";
 import { TodoPanel } from "./TodoPanel";
 import { errorMessage } from "./errors";
@@ -49,7 +39,7 @@ import {
 import * as cal from "./calendar";
 import { moveTimelineTask, resizeTimelineTask } from "./timelineDrag";
 import { Planner, Settings, GoalDetails } from "./Dialogs";
-import { Dialog, Dot, IconButton } from "./ui";
+import { Dialog, IconButton } from "./ui";
 import { TaskCard } from "./TaskCard";
 import { Toast } from "./Toast";
 import { EventCreator } from "./EventCreator";
@@ -183,53 +173,75 @@ export function App() {
 
 function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
   const guard = useActionGuard();
-  const applyingRef = useRef(false);
-  const [calendarApplying, setCalendarApplying] = useState(false);
+  const {
+    state,
+    setState,
+    latestState,
+    saveError,
+    persistBlocked,
+    setPersistBlocked,
+    error,
+    setError,
+    notice,
+    setNotice,
+    change,
+    retrySave,
+    retryingSave,
+    applyProposal,
+    applyingRef,
+    calendarApplying,
+  } = useCalendarWorkspace(initial);
+  const navigation = useCalendarNavigation(
+    dayFor(initial.state.settings.timezone),
+    state.settings.weekStartsOn,
+  );
+  const {
+    view,
+    setView,
+    miniMonth,
+    setMiniMonth,
+    visibleMonth,
+    setVisibleMonth,
+    monthScrollRequest,
+    week,
+    setWeek,
+    selectedDay,
+    setSelectedDay,
+    scrollToNowRequest,
+    showVisibleMonth,
+    showVisibleYear,
+  } = navigation;
   const [draggedTodo, setDraggedTodo] = useState<Todo | null>(null);
   const [todoPanelOpen, setTodoPanelOpen] = useState(true);
   const [destructiveName, setDestructiveName] = useState("");
-  const [state, setState] = useState(initial.state),
-    [saveError, setSaveError] = useState(initial.error),
-    [error, setError] = useState(""),
-    [view, setView] = useState<CalendarView>("week"),
-    [miniMonth, setMiniMonth] = useState(() =>
-      monthStart(dayFor(initial.state.settings.timezone)),
-    ),
-    [visibleMonth, setVisibleMonth] = useState(() =>
-      monthStart(dayFor(initial.state.settings.timezone)),
-    ),
-    [monthScrollRequest, setMonthScrollRequest] = useState(0),
-    [detailsOpen, setDetailsOpen] = useState(false),
-    [taskAnchor, setTaskAnchor] = useState<HTMLElement | null>(null),
-    [eventDraft, setEventDraft] = useState<EventDraft | null>(null),
-    [eventAnchor, setEventAnchor] = useState<HTMLElement | null>(null),
-    [week, setWeek] = useState(() =>
-      cal.weekStart(
-        dayFor(initial.state.settings.timezone),
-        initial.state.settings.weekStartsOn,
-      ),
-    ),
-    [selectedDay, setSelectedDay] = useState(() =>
-      dayFor(initial.state.settings.timezone),
-    ),
-    [selectedTask, setSelectedTask] = useState<string | null>(null),
-    [modal, setModal] = useState<
-      | "planner"
-      | "settings"
-      | "goals"
-      | "goal"
-      | "import"
-      | "reset"
-      | "recovery"
-      | null
-    >(null),
-    [goalId, setGoalId] = useState<string | null>(null),
-    [notice, setNotice] = useState(""),
-    [today, setToday] = useState(() => dayFor(initial.state.settings.timezone)),
-    [currentMinute, setCurrentMinute] = useState(() =>
-      referenceMode ? 1080 : cal.localMinute(initial.state.settings.timezone),
-    ),
-    [scrollToNowRequest, setScrollToNowRequest] = useState(0);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [taskAnchor, setTaskAnchor] = useState<HTMLElement | null>(null);
+  const [eventDraft, setEventDraft] = useState<EventDraft | null>(null);
+  const [eventAnchor, setEventAnchor] = useState<HTMLElement | null>(null);
+  const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  const [eventRevealRequest, setEventRevealRequest] = useState(0);
+  const pendingEventReveal = useRef<{
+    id: string;
+    start: number;
+    allDay: boolean;
+  } | null>(null);
+  const [modal, setModal] = useState<
+    | "planner"
+    | "settings"
+    | "goals"
+    | "goal"
+    | "import"
+    | "reset"
+    | "recovery"
+    | null
+  >(null);
+  const [goalId, setGoalId] = useState<string | null>(null);
+  const [today, setToday] = useState(() =>
+    dayFor(initial.state.settings.timezone),
+  );
+  const [currentMinute, setCurrentMinute] = useState(() =>
+    referenceMode ? 1080 : cal.localMinute(initial.state.settings.timezone),
+  );
   const t = useInterfaceText(state.settings.language);
 
   const fileInput = useRef<HTMLInputElement>(null),
@@ -237,35 +249,13 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
     timelineScroll = useRef<HTMLDivElement>(null),
     timeGrid = useRef<HTMLDivElement>(null),
     [pendingImport, setPendingImport] = useState<CalendarState | null>(null),
-    [persistBlocked, setPersistBlocked] = useState(!!initial.error),
-    todayRef = useRef(today),
-    latestState = useRef(state);
+    todayRef = useRef(today);
   const { lookup: holidays, error: holidayError } = useHolidayCalendar(
     state.settings,
   );
   useEffect(() => {
-    setWeek(cal.weekStart(selectedDay, state.settings.weekStartsOn));
-  }, [selectedDay, state.settings.weekStartsOn]);
-  useEffect(() => {
     document.documentElement.lang = state.settings.language;
   }, [state.settings.language]);
-  useEffect(() => {
-    latestState.current = state;
-  }, [state]);
-  useEffect(() => {
-    if (persistBlocked) return;
-    let cancelled = false;
-    void saveCalendar(state)
-      .then(() => {
-        if (!cancelled) setSaveError("");
-      })
-      .catch((error) => {
-        if (!cancelled) setSaveError(errorMessage(error));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [state, persistBlocked]);
   useEffect(() => {
     function refresh() {
       if (applyingRef.current) return;
@@ -294,7 +284,6 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
           cal.catchUp(previous, date, minute),
           date,
         );
-        latestState.current = next;
         setState(next);
       } catch (caught) {
         setError(errorMessage(caught));
@@ -317,26 +306,8 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [state.settings.timezone, persistBlocked]);
-  function change(fn: (state: CalendarState) => CalendarState, message = "") {
-    try {
-      setState(fn(state));
-      setError("");
-      setNotice(message);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    }
-  }
-  const active = state.goals.filter((goal) => goal.status === "active"),
-    later = state.goals.filter((goal) => goal.status === "later");
+  const active = state.goals.filter((goal) => goal.status === "active");
   const days = Array.from({ length: 7 }, (_, i) => cal.addDays(week, i));
-  const showVisibleMonth = useCallback((month: string) => {
-    setVisibleMonth(month);
-    setMiniMonth(month);
-  }, []);
-  const showVisibleYear = useCallback((year: string) => {
-    setVisibleMonth((month) => `${year}${month.slice(4)}`);
-    setMiniMonth((month) => `${year}${month.slice(4)}`);
-  }, []);
   const timelineDate = view === "day" ? selectedDay : week;
   useEffect(() => {
     if (
@@ -345,21 +316,64 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
       !timeGrid.current
     )
       return;
-    const minute = referenceMode
-      ? 1080
-      : cal.localMinute(state.settings.timezone);
+    // Creation reveals its box once; ordinary navigation still opens at now.
+    const scroller = timelineScroll.current;
+    const reveal = pendingEventReveal.current;
+    pendingEventReveal.current = null;
+    if (reveal) {
+      const card = reveal.allDay
+        ? scroller.querySelector<HTMLElement>(".all-day-event.selected")
+        : [...scroller.querySelectorAll<HTMLElement>(".timeline-event")].find(
+            (element) => element.dataset.taskId === reveal.id,
+          );
+      if (card) {
+        const viewport = scroller.getBoundingClientRect();
+        const bounds = card.getBoundingClientRect();
+        scroller.scrollLeft +=
+          bounds.left -
+          viewport.left -
+          Math.max(8, (scroller.clientWidth - bounds.width) / 2);
+        if (reveal.allDay) {
+          const cell = card.closest<HTMLElement>(".all-day-cell");
+          if (cell)
+            cell.scrollTop += bounds.top - cell.getBoundingClientRect().top - 8;
+        } else {
+          const headingHeight =
+            scroller.querySelector<HTMLElement>(".timeline-heading")
+              ?.offsetHeight ?? 0;
+          scroller.scrollTop +=
+            bounds.top -
+            viewport.top -
+            headingHeight -
+            Math.min(64, scroller.clientHeight / 5);
+        }
+        return;
+      }
+    }
+    const minute =
+      reveal?.start ??
+      (referenceMode ? 1080 : cal.localMinute(state.settings.timezone));
     // Clock ticks and task edits preserve manual scrolling in either timeline.
     timelineScroll.current.scrollTop = Math.max(
       0,
       ((minute - 60) / (24 * 60)) * timeGrid.current.clientHeight,
     );
-  }, [timelineDate, view, state.settings.timezone, scrollToNowRequest]);
-  const displayState = cal.calendarDisplayState(state);
+  }, [
+    timelineDate,
+    view,
+    state.settings.timezone,
+    scrollToNowRequest,
+    eventRevealRequest,
+  ]);
+  const displayState = useMemo(() => cal.calendarDisplayState(state), [state]);
+  const displayQueries = useCalendarQueries(state);
   const daySlots = [
-      ...cal.allDaySlotsFor(displayState, selectedDay),
-      ...cal.slotsFor(displayState, selectedDay),
+      ...displayQueries.slotsFor(selectedDay, null, true),
+      ...displayQueries.slotsFor(selectedDay),
     ],
-    plannedMinutes = cal.plannedMinutesFor(displayState, selectedDay);
+    plannedMinutes = displayQueries
+      .slotsFor(selectedDay)
+      .reduce((sum, slot) => sum + slot.duration, 0);
   const goal = state.goals.find((item) => item.id === goalId);
   const cardTask = selectedTask ? cal.taskFor(state, selectedTask) : undefined;
   const complete = (task: Task) =>
@@ -379,41 +393,22 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
     guard.request(() => {
       setEventDraft(null);
       setDetailsOpen(false);
-      setSelectedDay(today);
-      setWeek(cal.weekStart(today, state.settings.weekStartsOn));
-      setMiniMonth(monthStart(today));
-      setVisibleMonth(monthStart(today));
-      setMonthScrollRequest((request) => request + 1);
+      navigation.goToday(today);
       setSelectedTask(null);
-      setScrollToNowRequest((request) => request + 1);
     });
   }
   function selectDate(date: string, discardEventDraft = true) {
     const action = () => {
       if (discardEventDraft) setEventDraft(null);
       setDetailsOpen(false);
-      setSelectedDay(date);
-      setWeek(cal.weekStart(date, state.settings.weekStartsOn));
-      setMiniMonth(monthStart(date));
-      setVisibleMonth(monthStart(date));
-      if (view === "month" || view === "year")
-        setMonthScrollRequest((request) => request + 1);
+      navigation.selectDate(date);
       setSelectedTask(null);
     };
     if (discardEventDraft) guard.request(action);
     else guard.run(action);
   }
   function navigate(direction: number) {
-    const date =
-      view === "year"
-        ? shiftMonth(visibleMonth, direction * 12)
-        : view === "month"
-          ? shiftMonth(visibleMonth, direction)
-          : cal.addDays(
-              view === "week" ? week : selectedDay,
-              direction * (view === "week" ? 7 : 1),
-            );
-    selectDate(date);
+    selectDate(navigation.adjacentDate(direction));
   }
   function openSlot(slot: Slot, anchor: HTMLElement) {
     guard.request(() => {
@@ -437,7 +432,6 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
             ? moveTimelineTask(previous, task, date, start, today)
             : resizeTimelineTask(previous, task, start, minutes, today);
         if (next === previous) return;
-        latestState.current = next;
         setState(next);
         setEventDraft(null);
         setDetailsOpen(false);
@@ -506,7 +500,6 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
   }
   function addTodo(title: string) {
     const next = cal.addTodo(latestState.current, title);
-    latestState.current = next;
     setState(next);
     setError("");
     setNotice(t("Added to To do list."));
@@ -528,7 +521,6 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
           today,
           allDay,
         );
-        latestState.current = next;
         setState(next);
         setEventDraft(null);
         setDetailsOpen(false);
@@ -577,6 +569,47 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
       setError(errorMessage(caught));
     }
   }
+  const goalNavigation = {
+    state,
+    onGoal: (id: string) => {
+      setGoalId(id);
+      openModal("goal");
+    },
+    onToggleGoal: (id: string) => {
+      setState((current) => cal.toggleGoalVisibility(current, id));
+      setDetailsOpen(false);
+    },
+    onSaveGoal: (
+      id: string,
+      name: string,
+      color: Parameters<typeof cal.editGoalCalendar>[3],
+    ) => {
+      setState(cal.editGoalCalendar(latestState.current, id, name, color));
+      setNotice(t("Goal updated."));
+    },
+    onDeleteGoal: (id: string) => {
+      setState(cal.deleteGoal(latestState.current, id, todayRef.current));
+      setNotice(t("Goal deleted."));
+      setDetailsOpen(false);
+    },
+    onToggle: () => {
+      setState(cal.togglePersonalCalendar);
+      setDetailsOpen(false);
+    },
+    onSave: (
+      name: string,
+      color: Parameters<typeof cal.editPersonalCalendar>[2],
+    ) => {
+      setState(cal.editPersonalCalendar(latestState.current, name, color));
+      setNotice("Calendar updated.");
+    },
+    onDelete: () => {
+      setState(cal.deletePersonalCalendar);
+      setNotice("Calendar deleted.");
+      setDetailsOpen(false);
+    },
+    onBackup: () => download(latestState.current),
+  };
   return (
     <InterfaceLanguage language={state.settings.language}>
       <div
@@ -615,66 +648,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
             <Plus size={15} />
             {t("Create event")}
           </button>
-          <CalendarSection
-            key={`${cal.personalCalendarFor(state)?.name}/${cal.personalCalendarFor(state)?.color}`}
-            state={state}
-            onToggle={() => {
-              setState(cal.togglePersonalCalendar(state));
-              setDetailsOpen(false);
-            }}
-            onSave={(name, color) => {
-              setState(cal.editPersonalCalendar(state, name, color));
-              setNotice("Calendar updated.");
-            }}
-            onDelete={() => {
-              setState(cal.deletePersonalCalendar(state));
-              setNotice("Calendar deleted.");
-              setDetailsOpen(false);
-            }}
-            onBackup={() => download(state)}
-          />
-          <div className="goal-group">
-            <h2>{t("Active goals")}</h2>
-            {active.length === 0 && (
-              <p className="muted small">
-                {t("Activate a saved goal or plan a new one.")}
-              </p>
-            )}
-            {active.map((item) => (
-              <button
-                key={item.id}
-                className="goal-link"
-                onClick={() => {
-                  setGoalId(item.id);
-                  openModal("goal");
-                }}
-              >
-                <Dot color={item.color} />
-                <span>{item.name}</span>
-              </button>
-            ))}
-          </div>
-          {later.length > 0 && (
-            <div className="goal-group later">
-              <h2>{t("Later")}</h2>
-              {later.length === 0 && (
-                <p className="muted small">{t("Ideas can wait here.")}</p>
-              )}
-              {later.map((item) => (
-                <button
-                  key={item.id}
-                  className="goal-link muted"
-                  onClick={() => {
-                    setGoalId(item.id);
-                    openModal("goal");
-                  }}
-                >
-                  <Dot color="gray" />
-                  <span>{item.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <GoalNavigation layout="rail" {...goalNavigation} />
           <div className="rail-footer">
             <button
               className="mobile-goals-button"
@@ -847,6 +821,14 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
           {(error || saveError) && (
             <div className="alert" role="alert">
               <span>{t(error || saveError)}</span>
+              {saveError && !persistBlocked && (
+                <button
+                  disabled={retryingSave}
+                  onClick={() => void retrySave()}
+                >
+                  {retryingSave ? t("Retrying save…") : t("Retry save")}
+                </button>
+              )}
               {saveError && (
                 <button
                   onClick={() => {
@@ -1148,13 +1130,52 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
               )}
               <FloatingChat
                 state={state}
+                onCreateEvent={(event) => {
+                  const next = cal.createEvent(
+                    latestState.current,
+                    event,
+                    todayRef.current,
+                  );
+                  const created = next.tasks[next.tasks.length - 1];
+                  setState(
+                    cal.personalCalendarFor(next)?.visible === false
+                      ? cal.togglePersonalCalendar(next)
+                      : next,
+                  );
+                  setError("");
+                  setNotice(t("Event created."));
+                  setEventDraft(null);
+                  setDetailsOpen(false);
+                  setTaskAnchor(null);
+                  navigation.selectDate(event.date);
+                  if (view === "month" || view === "year") setView("day");
+                  setSelectedTask(created.id);
+                  pendingEventReveal.current = {
+                    id: created.id,
+                    start: created.start,
+                    allDay: !!created.allDay,
+                  };
+                  setEventRevealRequest((request) => request + 1);
+                }}
                 onReference={(ref) =>
                   guard.request(() => {
+                    const referencedTask = cal.taskFor(state, ref.id);
                     if (
-                      cal.taskFor(state, ref.id)?.goalId === null &&
+                      referencedTask?.goalId === null &&
                       cal.personalCalendarFor(state)?.visible === false
                     )
                       setState(cal.togglePersonalCalendar(state));
+                    else if (
+                      referencedTask?.goalId &&
+                      state.goals.some(
+                        (goal) =>
+                          goal.id === referencedTask.goalId &&
+                          goal.visible === false,
+                      )
+                    )
+                      setState(
+                        cal.toggleGoalVisibility(state, referencedTask.goalId),
+                      );
                     selectDate(ref.date);
                     setView("day");
                     setTaskAnchor(null);
@@ -1162,48 +1183,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                     setDetailsOpen(true);
                   })
                 }
-                onReviewEvent={(event) =>
-                  guard.request(() => {
-                    openEvent(
-                      event.date,
-                      event.start,
-                      undefined,
-                      !!event.allDay,
-                    );
-                    setEventDraft((draft) =>
-                      draft ? { ...draft, ...event } : draft,
-                    );
-                  })
-                }
-                onApply={async (proposalId, kind) => {
-                  applyingRef.current = true;
-                  setCalendarApplying(true);
-                  try {
-                    await flushCalendar(latestState.current);
-                    const saved = await api(
-                      kind === "todos" ? "todos/apply" : "calendar/apply",
-                      {
-                        scope: storageScope(),
-                        proposalId,
-                      },
-                    );
-                    if (!saved.state)
-                      throw new Error(
-                        "The calendar changes could not be loaded. Reopen Appa.",
-                      );
-                    acceptStoredCalendar(saved);
-                    latestState.current = saved.state;
-                    setState(saved.state);
-                    setNotice(
-                      kind === "todos"
-                        ? "To do list updated."
-                        : "Calendar replanned.",
-                    );
-                  } finally {
-                    applyingRef.current = false;
-                    setCalendarApplying(false);
-                  }
-                }}
+                onApply={applyProposal}
                 onActivate={(open) =>
                   guard.request(() => {
                     setEventDraft(null);
@@ -1410,7 +1390,6 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
                 settings,
                 dayFor(settings.timezone),
               );
-              latestState.current = next;
               setState(next);
               setNotice("Settings saved.");
             }}
@@ -1429,56 +1408,7 @@ function AppContent({ initial }: { initial: ReturnType<typeof load> }) {
             onClose={() => guard.request(() => setModal(null))}
           >
             <div className="dialog-body">
-              <CalendarSection
-                key={`${cal.personalCalendarFor(state)?.name}/${cal.personalCalendarFor(state)?.color}`}
-                state={state}
-                onToggle={() => {
-                  setState(cal.togglePersonalCalendar(state));
-                  setDetailsOpen(false);
-                }}
-                onSave={(name, color) => {
-                  setState(cal.editPersonalCalendar(state, name, color));
-                  setNotice("Calendar updated.");
-                }}
-                onDelete={() => {
-                  setState(cal.deletePersonalCalendar(state));
-                  setNotice("Calendar deleted.");
-                  setDetailsOpen(false);
-                }}
-                onBackup={() => download(state)}
-              />
-              <h3>{t("Active goals")}</h3>
-              {active.map((item) => (
-                <button
-                  className="goal-link"
-                  key={item.id}
-                  onClick={() => {
-                    setGoalId(item.id);
-                    openModal("goal");
-                  }}
-                >
-                  <Dot color={item.color} />
-                  <span>{item.name}</span>
-                </button>
-              ))}
-              <h3 className="later-heading">{t("Later")}</h3>
-              {later.length ? (
-                later.map((item) => (
-                  <button
-                    className="goal-link"
-                    key={item.id}
-                    onClick={() => {
-                      setGoalId(item.id);
-                      openModal("goal");
-                    }}
-                  >
-                    <Dot color="gray" />
-                    <span>{item.name}</span>
-                  </button>
-                ))
-              ) : (
-                <p className="small muted">{t("Ideas can wait here.")}</p>
-              )}
+              <GoalNavigation layout="dialog" {...goalNavigation} />
               {state.sample && (
                 <button
                   className="text-button"

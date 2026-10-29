@@ -1,4 +1,5 @@
 export type GoalColor = "indigo" | "teal" | "amber" | "rose" | "slate" | "clay";
+export type CalendarView = "day" | "week" | "month" | "year";
 export type TaskStatus = "pending" | "done" | "skipped" | "consolidated";
 export type TimelineResizeEdge = "start" | "end";
 export type EventRepeat =
@@ -66,6 +67,7 @@ export interface Goal {
   id: string;
   name: string;
   color: GoalColor;
+  visible?: boolean;
   status: "active" | "later";
   recurrence: Recurrence | null;
 }
@@ -204,6 +206,7 @@ export interface SessionResponse {
   signOutPending?: boolean;
 }
 export interface ApiRequests {
+  "calendar/load": { scope: string };
   "calendar/bootstrap": {
     scope: string;
     legacy: unknown;
@@ -232,6 +235,7 @@ export interface ApiRequests {
   plan: { intention: string; model?: string };
 }
 export interface ApiResponses {
+  "calendar/load": StoredCalendar;
   "calendar/bootstrap": StoredCalendar;
   "calendar/save": StoredCalendar;
   assistant: AssistantResult;

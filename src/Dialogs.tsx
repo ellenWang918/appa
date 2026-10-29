@@ -608,6 +608,8 @@ export function GoalDetails({
 
   const [error, setError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [visibleSteps, setVisibleSteps] = useState(15);
+  const [visibleHistory, setVisibleHistory] = useState(15);
   const tasks = state.tasks.filter(
     (task) =>
       task.goalId === goal.id && ["done", "pending"].includes(task.status),
@@ -702,7 +704,7 @@ export function GoalDetails({
         )}
         {tasks.length ? (
           <ul className="goal-task-list">
-            {tasks.slice(0, 15).map((task) => (
+            {tasks.slice(0, visibleSteps).map((task) => (
               <li key={task.id}>
                 {task.status === "done" ? (
                   <CheckCircle size={18} />
@@ -726,13 +728,23 @@ export function GoalDetails({
             {t("This goal has no steps yet. Plan it when you’re ready.")}
           </p>
         )}
+        {tasks.length > visibleSteps && (
+          <button
+            className="text-button"
+            onClick={() => setVisibleSteps((count) => count + 15)}
+          >
+            {t("Show more steps ({count} remaining)", {
+              count: tasks.length - visibleSteps,
+            })}
+          </button>
+        )}
         {history.length > 0 && (
           <details className="missed-history">
             <summary>
               {history.length} {t("missed occurrences")}
             </summary>
             <ul className="goal-task-list">
-              {history.map((task) => (
+              {history.slice(0, visibleHistory).map((task) => (
                 <li key={task.id}>
                   <Clock size={18} />
                   <span>
@@ -751,6 +763,16 @@ export function GoalDetails({
                 </li>
               ))}
             </ul>
+            {history.length > visibleHistory && (
+              <button
+                className="text-button"
+                onClick={() => setVisibleHistory((count) => count + 15)}
+              >
+                {t("Show more history ({count} remaining)", {
+                  count: history.length - visibleHistory,
+                })}
+              </button>
+            )}
           </details>
         )}
       </div>

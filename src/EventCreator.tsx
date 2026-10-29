@@ -1,10 +1,11 @@
+import { minuteFor, timeRange } from "./timeRange";
 import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
 import { useEffect, useId, useRef, useState } from "react";
 import { X } from "@phosphor-icons/react";
 import type { EventDraft, TaskEdit } from "./types";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { IconButton } from "./ui";
-import { clockTime } from "./CalendarViews";
+import { clockTime } from "./calendar";
 import { errorMessage } from "./errors";
 import { useFloatingCard } from "./useFloatingCard";
 import { AllDayToggle } from "./AllDayToggle";
@@ -55,10 +56,6 @@ export function EventCreator({
     repeat: draft.repeat ?? "none",
     unscheduled: !!draft.unscheduled,
   });
-  const minuteFor = (value: string) => {
-    const [hour, minute] = value.split(":").map(Number);
-    return hour * 60 + minute;
-  };
   useEffect(() => {
     nameRef.current?.focus({ preventScroll: true });
   }, []);
@@ -126,15 +123,10 @@ export function EventCreator({
               onSaveTodo(String(values.get("title")).trim() || t("New event"));
               return;
             }
-            const from = minuteFor(startTime);
-            const to = minuteFor(endTime);
             onSave({
               title: String(values.get("title")).trim() || t("New event"),
               date: String(values.get("date")),
-              start: draft.allDay ? 0 : from,
-              minutes: draft.allDay
-                ? 1440
-                : (to === 0 && from > 0 ? 1440 : to) - from,
+              ...timeRange(startTime, endTime, !!draft.allDay),
               ...(draft.allDay ? { allDay: true } : {}),
               repeat: draft.repeat ?? "none",
             });

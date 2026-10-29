@@ -10,8 +10,10 @@ import { useInterfaceText } from "./InterfaceLanguage";
 import * as cal from "./calendar";
 import { holidayLabel } from "./holidayDates";
 import { EventReservation } from "./EventReservation";
+import type { createCalendarQueries } from "./calendarQueries";
 
 export function AllDayRow({
+  queries,
   dates,
   state,
   holidays,
@@ -23,6 +25,7 @@ export function AllDayRow({
   draggedTodo,
   onScheduleTodo,
 }: {
+  queries: ReturnType<typeof createCalendarQueries>;
   dates: string[];
   state: CalendarState;
   holidays: HolidayLookup;
@@ -109,7 +112,7 @@ export function AllDayRow({
               {holidayLabel(holiday)}
             </p>
           ))}
-          {cal.allDaySlotsFor(state, date).map((slot) => {
+          {queries.slotsFor(date, null, true).map((slot) => {
             const task = slot.tasks[0];
             return (
               <button

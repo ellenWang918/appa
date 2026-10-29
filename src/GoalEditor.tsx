@@ -1,3 +1,4 @@
+import { ColorPicker } from "./ColorPicker";
 import { DestructiveAction } from "./DestructiveAction";
 import { goalDeletionImpact } from "./actionPatterns";
 import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
@@ -96,33 +97,10 @@ export function GoalEditor({
         }
       }}
     >
-      <fieldset className="goal-colour-picker">
-        <legend>{t("Goal colour")}</legend>
-        <div className="goal-colour-options">
-          {(
-            [
-              ["indigo", "Sage"],
-              ["slate", "Slate blue"],
-              ["amber", "Ochre"],
-              ["rose", "Dusty plum"],
-              ["clay", "Clay"],
-              ["teal", "Muted teal"],
-            ] as const
-          ).map(([color, label]) => (
-            <label key={color} data-goal-color={color}>
-              <input
-                type="radio"
-                name="goal-colour"
-                value={color}
-                checked={draft.color === color}
-                onChange={() => update({ ...draft, color })}
-              />
-              <span className="goal-colour-swatch" aria-hidden="true" />
-              {t(label)}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <ColorPicker
+        value={draft.color ?? "indigo"}
+        onChange={(color) => update({ ...draft, color })}
+      />
       <div className="two-fields">
         <label className="field">
           {t("Goal name")}

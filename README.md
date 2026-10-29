@@ -28,6 +28,8 @@ The To do list can be hidden from the header to give the calendar more room.
 - **Ask Appa for help.** Plan goals and events, ask calendar-history questions such as “When was my last haircut?”, rearrange scheduled work, or add and manage to dos through chat. AI features use your own eligible ChatGPT account.
 - **Review changes and recover missed work.** Inspect AI proposals before applying them. Undo the latest saved change, and review, undo or dismiss the catch-up summary after missed days.
 - **Keep everyday details together.** Create timed, all-day and repeating events. Choose your timezone, first weekday, week numbers and public holidays. Settings apply as you change them.
+- **Capture appointments as you type.** Enter an event name, date and time in the compact composer and press Enter. Recognised details become editable tags; date/time tags support arrow-key adjustment and normal text editing after deletion. Direct event entry works without an AI account.
+- **Organise calendar groups consistently.** Personal tasks and Active goals share visibility controls, inline name/colour editing and options. Hidden groups still reserve their scheduled time; longer goal details expose additional steps and history with Show more.
 - **Keep your calendar on your computer.** Events, goals, to dos, settings and progress save to local SQLite storage. Export and import JSON backups; everyday planning works offline.
 
 ## Get the desktop app
@@ -128,15 +130,17 @@ Application code uses strict TypeScript: React components in `.tsx`, scheduling 
 
 | Location | Responsibility |
 | --- | --- |
-| `src/App.tsx`, `src/CalendarViews.tsx` | React calendar views, date navigation and goal input |
-| `src/Dialogs.tsx`, `src/ui.tsx` | Planning, settings, goal details and shared controls |
+| `src/App.tsx`, `src/useCalendarWorkspace.ts`, `src/useCalendarNavigation.ts` | Workspace composition, authoritative calendar changes, save recovery and date/view navigation |
+| `src/CalendarViews.tsx`, `src/CalendarTimeline.tsx`, `src/YearCalendar.tsx` | Calendar views with shared timeline and indexed year summaries |
+| `src/Dialogs.tsx`, `src/ui.tsx`, `src/GoalNavigation.tsx`, `src/ColorPicker.tsx` | Planning/settings/goal details and shared controls/navigation |
 | `src/TodoPanel.tsx`, `src/timelineDrag.ts`, `src/useTimelineResize.ts` | Undated tasks, calendar drag-and-drop and duration resizing |
-| `src/calendar.ts`, `src/types.ts` | Scheduling, recurrence, recovery, backup validation and shared TypeScript contracts |
+| `src/calendar.ts`, `src/calendarQueries.ts`, `src/calendarDates.ts`, `src/types.ts` | Scheduling, recurrence, indexed queries, date helpers, validation and shared contracts |
+| `src/goalPalette.ts`, `src/timeRange.ts` | Shared colour definitions and time-range conversion |
 | `src/styles.css` | Calendar layout, colours and responsive styles |
 | `server/chatgpt.ts`, `server/calendar-assistant.ts`, `server/todo-assistant.ts` | Local ChatGPT sign-in, structured assistant responses, history retrieval, reviewed replanning and To do list actions |
-| `server/calendar-store.ts`, `src/calendarStorage.ts` | SQLite persistence, browser-data migration, save queue and revision checks |
+| `server/calendar-store.ts`, `src/calendarStorage.ts`, `src/calendarPersistence.ts` | SQLite snapshots and incremental projections, migration, coalesced saves and safe retry |
 | `desktop/` | Electron startup, private local server, preload and external-link policy |
-| `tests/` | Scheduling, backup, desktop security and hosting regression checks |
+| `tests/` | Domain, persistence, desktop security, synthetic renderer journeys and hosting regression checks |
 
 ## Contribute
 

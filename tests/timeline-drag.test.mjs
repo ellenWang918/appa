@@ -7,6 +7,7 @@ import {
   moveTimelineTask,
   timelineResizeRange,
   resizeTimelineTask,
+  validateTimelinePreview,
 } from "../dist/runtime/src/timelineDrag.js";
 
 const today = "2026-10-19";
@@ -277,4 +278,85 @@ test("Only pending timed cards and chosen shared activities can start a drag", (
     draggableTimelineTask(allDay, cal.allDaySlotsFor(allDay, today)[0]),
     undefined,
   );
+});
+
+test("Timeline previews share committed validation without cloning history, changing choices or allocating Undo", () => {
+  const cases = [
+    workspace(),
+    cal.seed(today),
+    cal.createEvent(
+      cal.blank(today),
+      { ...eventDetails, repeat: "daily" },
+      today,
+    ),
+  ];
+  const outcome = (work) => {
+    try {
+      work();
+      return null;
+    } catch (error) {
+      return error.message;
+    }
+  };
+  for (const state of cases) {
+    const dates = [today, cal.addDays(today, 1)];
+    for (const date of dates)
+      for (const slot of cal.slotsFor(state, date)) {
+        const source = draggableTimelineTask(state, slot);
+        if (!source) continue;
+        const before = structuredClone(state);
+        for (const start of [0, 540, 1080, 1200, 1435]) {
+          const committed = outcome(() =>
+            moveTimelineTask(state, source, date, start, today),
+          );
+          const preview = outcome(() =>
+            validateTimelinePreview(
+              state,
+              source,
+              date,
+              start,
+              source.minutes,
+              today,
+            ),
+          );
+          assert.equal(preview, committed);
+          const resized = outcome(() =>
+            resizeTimelineTask(state, source, start, 45, today),
+          );
+          assert.equal(
+            outcome(() =>
+              validateTimelinePreview(
+                state,
+                source,
+                source.date,
+                start,
+                45,
+                today,
+              ),
+            ),
+            resized,
+          );
+        }
+        assert.deepEqual(state, before);
+        const clone = globalThis.structuredClone;
+        globalThis.structuredClone = () => {
+          throw new Error("Preview cloned lifetime history");
+        };
+        try {
+          validateTimelinePreview(
+            state,
+            source,
+            date,
+            source.start + 5,
+            source.minutes,
+            today,
+          );
+        } catch (error) {
+          assert.doesNotMatch(error.message, /Preview cloned/);
+        } finally {
+          globalThis.structuredClone = clone;
+        }
+        assert.deepEqual(state, before);
+      }
+  }
 });

@@ -5,7 +5,7 @@ import { Check, Clock, LockSimple, Square, X } from "@phosphor-icons/react";
 import type { CalendarState, Task, TaskEdit } from "./types";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { TaskEditor } from "./TaskEditor";
-import { clockTime } from "./CalendarViews";
+import { clockTime } from "./calendar";
 import * as cal from "./calendar";
 import { useFloatingCard } from "./useFloatingCard";
 import { eventRepeatLabel } from "./eventRepeat";
@@ -132,7 +132,9 @@ export function TaskCard({
         <TaskEditor
           key={task.id}
           task={task}
-          goalName={goal?.name ?? cal.personalCalendarFor(state)?.name ?? t("Event")}
+          goalName={
+            goal?.name ?? cal.personalCalendarFor(state)?.name ?? t("Event")
+          }
           repeat={series?.repeat ?? "none"}
           today={today}
           onClose={() => setEditing(false)}
@@ -144,7 +146,9 @@ export function TaskCard({
       ) : (
         <>
           <div className="task-card-main">
-            <p className="task-card-goal">{goal?.name ?? cal.personalCalendarFor(state)?.name ?? t("Event")}</p>
+            <p className="task-card-goal">
+              {goal?.name ?? cal.personalCalendarFor(state)?.name ?? t("Event")}
+            </p>
             <h2>{task.title}</h2>
             <p className="task-card-date">
               {cal

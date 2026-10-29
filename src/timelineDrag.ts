@@ -73,6 +73,7 @@ function changeTimelineTask(
   start: number,
   minutes: number,
   today: string,
+  preview = false,
 ) {
   const task = cal.taskFor(state, source.id);
   if (
@@ -86,10 +87,25 @@ function changeTimelineTask(
     throw new Error("This entry changed while you were dragging. Try again.");
   if (task.date === date && task.start === start && task.minutes === minutes)
     return state;
+  if (preview) {
+    cal.validateTaskMove(state, task.id, date, start, minutes, today);
+    return state;
+  }
   return cal.editTask(
     state,
     task.id,
     { title: task.title, date, start, minutes },
     today,
   );
+}
+
+export function validateTimelinePreview(
+  state: CalendarState,
+  source: Task,
+  date: string,
+  start: number,
+  minutes: number,
+  today: string,
+) {
+  changeTimelineTask(state, source, date, start, minutes, today, true);
 }

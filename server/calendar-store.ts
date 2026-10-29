@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { StoredCalendar, Task } from "../src/types.js";
+import type { CalendarState, StoredCalendar, Task } from "../src/types.js";
 import { validateBackup } from "../src/calendar.js";
 
 export class CalendarConflict extends Error {}
@@ -74,30 +74,79 @@ export function openCalendarStore(directory: string) {
           typeof migration === "string" ? migration : JSON.stringify(migration),
           new Date().toISOString(),
         );
-      for (const table of ["event", "goal", "event_series"])
-        db.prepare(`DELETE FROM ${table} WHERE scope=?`).run(scope);
-      const insert = db.prepare(
-        "INSERT INTO event(scope,id,date,start,search_text,data) VALUES (?,?,?,?,?,?)",
+      const before = previous
+        ? (JSON.parse(String(previous.state)) as CalendarState)
+        : undefined;
+      const previousGoals = new Map(
+        before?.goals.map((goal) => [goal.id, goal.name]),
       );
-      for (const task of state.tasks)
-        insert.run(
-          scope,
+      const nextGoals = new Map(
+        state.goals.map((goal) => [goal.id, goal.name]),
+      );
+      const eventRow = (
+        task: Task,
+        goals: Map<string, string>,
+        calendarName?: string,
+      ) => ({
+        data: JSON.stringify(task),
+        search: `${task.title} ${(task.goalId === null ? undefined : goals.get(task.goalId)) ?? calendarName ?? ""}`,
+      });
+      const oldEvents = new Map(
+        before?.tasks.map((task) => [
           task.id,
-          task.date,
-          task.start,
-          `${task.title} ${state.goals.find((goal) => goal.id === task.goalId)?.name ?? state.personalCalendar?.name ?? ""}`,
-          JSON.stringify(task),
+          eventRow(task, previousGoals, before?.personalCalendar?.name),
+        ]),
+      );
+      const newIds = new Set(state.tasks.map((task) => task.id));
+      const removeEvent = db.prepare(
+        "DELETE FROM event WHERE scope=? AND id=?",
+      );
+      for (const taskId of oldEvents.keys())
+        if (!newIds.has(taskId)) removeEvent.run(scope, taskId);
+      const insertEvent = db.prepare(
+        "INSERT INTO event(scope,id,date,start,search_text,data) VALUES (?,?,?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET date=excluded.date,start=excluded.start,search_text=excluded.search_text,data=excluded.data",
+      );
+      for (const task of state.tasks) {
+        const row = eventRow(task, nextGoals, state.personalCalendar?.name);
+        const old = oldEvents.get(task.id);
+        if (old?.data !== row.data || old?.search !== row.search)
+          insertEvent.run(
+            scope,
+            task.id,
+            task.date,
+            task.start,
+            row.search,
+            row.data,
+          );
+      }
+      function syncRecords(
+        table: "goal" | "event_series",
+        oldRecords: { id: string }[],
+        records: { id: string }[],
+      ) {
+        const old = new Map(
+          oldRecords.map((record) => [record.id, JSON.stringify(record)]),
         );
-      for (const goal of state.goals)
-        db.prepare("INSERT INTO goal(scope,id,data) VALUES (?,?,?)").run(
-          scope,
-          goal.id,
-          JSON.stringify(goal),
+        const ids = new Set(records.map((record) => record.id));
+        const remove = db.prepare(
+          `DELETE FROM ${table} WHERE scope=? AND id=?`,
         );
-      for (const series of state.eventSeries ?? [])
-        db.prepare(
-          "INSERT INTO event_series(scope,id,data) VALUES (?,?,?)",
-        ).run(scope, series.id, JSON.stringify(series));
+        for (const recordId of old.keys())
+          if (!ids.has(recordId)) remove.run(scope, recordId);
+        const upsert = db.prepare(
+          `INSERT INTO ${table}(scope,id,data) VALUES (?,?,?) ON CONFLICT(scope,id) DO UPDATE SET data=excluded.data`,
+        );
+        for (const record of records) {
+          const json = JSON.stringify(record);
+          if (old.get(record.id) !== json) upsert.run(scope, record.id, json);
+        }
+      }
+      syncRecords("goal", before?.goals ?? [], state.goals);
+      syncRecords(
+        "event_series",
+        before?.eventSeries ?? [],
+        state.eventSeries ?? [],
+      );
       db.prepare(
         "DELETE FROM change_history WHERE scope=? AND id NOT IN (SELECT id FROM change_history WHERE scope=? ORDER BY id DESC LIMIT 100)",
       ).run(scope, scope);

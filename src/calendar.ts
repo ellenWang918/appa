@@ -27,17 +27,20 @@ import {
   isEventRepeat,
   seriesCanShareDate,
   virtualEventForId,
-  virtualEventsForDate,
 } from "./eventRepeat.js";
+import {
+  slotsFor,
+  allDaySlotsFor,
+  createCalendarQueries,
+} from "./calendarQueries.js";
+export {
+  slotsFor,
+  allDaySlotsFor,
+  plannedMinutesFor,
+} from "./calendarQueries.js";
 
-export const COLORS: GoalColor[] = [
-  "indigo",
-  "slate",
-  "amber",
-  "rose",
-  "clay",
-  "teal",
-];
+import { COLORS } from "./goalPalette.js";
+export { COLORS } from "./goalPalette.js";
 export function personalCalendarFor(state: CalendarState) {
   return state.personalCalendar === undefined
     ? { name: "Personal tasks", color: "slate" as GoalColor, visible: true }
@@ -63,6 +66,32 @@ export function togglePersonalCalendar(state: CalendarState) {
   if (!group) return state;
   return { ...state, personalCalendar: { ...group, visible: !group.visible } };
 }
+export function toggleGoalVisibility(state: CalendarState, goalId: string) {
+  if (!state.goals.some((goal) => goal.id === goalId)) return state;
+  return {
+    ...state,
+    goals: state.goals.map((goal) =>
+      goal.id === goalId ? { ...goal, visible: goal.visible === false } : goal,
+    ),
+  };
+}
+export function editGoalCalendar(
+  state: CalendarState,
+  goalId: string,
+  name: string,
+  color: GoalColor,
+) {
+  if (!state.goals.some((goal) => goal.id === goalId))
+    throw new Error("This goal is no longer available.");
+  if (!name.trim() || name.trim().length > 120)
+    throw new Error("Enter a goal name of 1–120 characters.");
+  if (!COLORS.includes(color)) throw new Error("Choose a valid goal colour.");
+  const next = copy(state);
+  const goal = next.goals.find((goal) => goal.id === goalId)!;
+  goal.name = name.trim();
+  goal.color = color;
+  return commit(state, next, "Goal updated");
+}
 export function deletePersonalCalendar(state: CalendarState) {
   const next = copy(state);
   const ids = new Set(
@@ -76,13 +105,19 @@ export function deletePersonalCalendar(state: CalendarState) {
   return commit(state, next, "Calendar deleted");
 }
 export function calendarDisplayState(state: CalendarState): CalendarState {
-  return personalCalendarFor(state)?.visible === false
-    ? {
-        ...state,
-        tasks: state.tasks.filter((task) => task.goalId !== null),
-        eventSeries: [],
-      }
-    : state;
+  const personalHidden = personalCalendarFor(state)?.visible === false;
+  const hiddenGoals = new Set(
+    state.goals.filter((goal) => goal.visible === false).map((goal) => goal.id),
+  );
+  if (!personalHidden && !hiddenGoals.size) return state;
+  return {
+    ...state,
+    goals: state.goals.filter((goal) => !hiddenGoals.has(goal.id)),
+    tasks: state.tasks.filter((task) =>
+      task.goalId === null ? !personalHidden : !hiddenGoals.has(task.goalId),
+    ),
+    ...(personalHidden ? { eventSeries: [] } : {}),
+  };
 }
 export const availableHours = (settings: Settings) =>
   settings.useAvailableTime === false
@@ -265,48 +300,6 @@ export function slotGoalColor(state: CalendarState, slot: Slot) {
     return undefined;
   return goalFor(state, slot.tasks[0])?.color;
 }
-export function slotsFor(
-  state: CalendarState,
-  date: string,
-  ignoreId: string | null = null,
-  allDay = false,
-): Slot[] {
-  const groups = new Map<string, Task[]>();
-  for (const task of [...state.tasks, ...virtualEventsForDate(state, date)]) {
-    if (
-      task.id === ignoreId ||
-      task.date !== date ||
-      !!task.allDay !== allDay ||
-      !["pending", "done"].includes(task.status) ||
-      (task.goalId !== null && goalFor(state, task)?.status !== "active")
-    )
-      continue;
-    if (!groups.has(task.slotId)) groups.set(task.slotId, []);
-    groups.get(task.slotId)!.push(task);
-  }
-  return [...groups]
-    .map(([slotId, tasks]) => {
-      const chosenId = state.choices[`${date}/${slotId}`];
-      const done = tasks.find((t) => t.status === "done");
-      const chosen = done || tasks.find((t) => t.id === chosenId);
-      return {
-        id: slotId,
-        date,
-        start: Math.min(...tasks.map((t) => t.start)),
-        tasks,
-        chosen,
-        done: !!done,
-        duration: chosen
-          ? chosen.minutes
-          : Math.max(...tasks.map((t) => t.minutes)),
-      };
-    })
-    .sort((a, b) => a.start - b.start);
-}
-export const allDaySlotsFor = (state: CalendarState, date: string) =>
-  slotsFor(state, date, null, true);
-export const plannedMinutesFor = (state: CalendarState, date: string) =>
-  slotsFor(state, date).reduce((sum, slot) => sum + slot.duration, 0);
 function fits(
   state: CalendarState,
   date: string,
@@ -539,7 +532,46 @@ export function editTask(
   edit: TaskEdit,
   today = localDate(state.settings.timezone),
 ) {
-  const next = copy(state);
+  return applyTaskEdit(state, taskId, edit, today);
+}
+
+// Timeline previews change only timing. Share every edit validation rule without
+// cloning lifetime history or allocating an Undo snapshot for each pointer move.
+export function validateTaskMove(
+  state: CalendarState,
+  taskId: string,
+  date: string,
+  start: number,
+  minutes: number,
+  today: string,
+) {
+  const task = taskFor(state, taskId);
+  if (!task || task.allDay) throw new Error("Only timed tasks can be moved.");
+  applyTaskEdit(
+    state,
+    taskId,
+    { title: task.title, date, start, minutes },
+    today,
+    true,
+  );
+}
+
+function applyTaskEdit(
+  state: CalendarState,
+  taskId: string,
+  edit: TaskEdit,
+  today: string,
+  preview = false,
+) {
+  const next = preview
+    ? {
+        ...state,
+        tasks: state.tasks.map((task) =>
+          task.id === taskId ? { ...task } : task,
+        ),
+        choices: { ...state.choices },
+      }
+    : copy(state);
   const task = materializeTask(next, taskId);
   if (
     !task ||
@@ -562,7 +594,7 @@ export function editTask(
     Object.assign(task, eventDetails(edit));
     if (!edit.allDay) delete task.allDay;
     validateRepeatConflicts(next, today);
-    return commit(state, next, "Event updated");
+    return preview ? next : commit(state, next, "Event updated");
   }
   if (edit.repeat && edit.repeat !== "none")
     throw new Error("Repeat is available for standalone events only.");
@@ -634,7 +666,7 @@ export function editTask(
         "This time overlaps another task or shared reservation. Choose a free time.",
       );
   }
-  return commit(state, next, "Task updated");
+  return preview ? next : commit(state, next, "Task updated");
 }
 
 function validateEvent(
@@ -1450,6 +1482,7 @@ export function activateGoal(
   if (!goal || goal.status !== "later")
     throw new Error("This goal is already active.");
   goal.status = "active";
+  if (goal.visible === false) goal.visible = true;
   if (goal.recurrence) goal.recurrence.anchor = today;
   const pending = next.tasks.filter(
     (t) => t.goalId === goalId && t.status === "pending",
@@ -1684,10 +1717,11 @@ function validateRecurringHours(
 }
 function validateSchedule(state: CalendarState, today: string) {
   const hours = availableHours(state.settings);
+  const queries = createCalendarQueries(state);
   for (const date of new Set(
     state.tasks.filter((t) => t.date >= today).map((t) => t.date),
   )) {
-    const slots = slotsFor(state, date);
+    const slots = queries.slotsFor(date);
     if (
       slots.some(
         (s, i) =>
@@ -1719,6 +1753,7 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
       !g.name.trim() ||
       g.name.length > 120 ||
       !COLORS.includes(g.color) ||
+      (g.visible !== undefined && typeof g.visible !== "boolean") ||
       !["active", "later"].includes(g.status)
     )
       throw new Error("The backup contains an invalid goal.");
@@ -1744,6 +1779,7 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
       id: g.id,
       name: g.name,
       color: g.color,
+      ...(g.visible !== undefined ? { visible: g.visible } : {}),
       status: g.status,
       recurrence: g.recurrence ? copy(g.recurrence) : null,
     };
@@ -1752,10 +1788,20 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
     throw new Error("The backup has duplicate goals.");
   validateRecurringHours(goals, settings);
   const eventSeries = validateEventSeries(raw.eventSeries);
+  const goalById = new Map(goals.map((goal) => [goal.id, goal]));
+  const seriesById = new Map(eventSeries?.map((series) => [series.id, series]));
+  const slotOwners = new Map<string, Set<string>>();
+  for (const task of raw.tasks) {
+    if (!task || typeof task !== "object")
+      throw new Error("The backup contains an invalid task.");
+    const key = JSON.stringify([task.date, task.slotId]);
+    if (!slotOwners.has(key)) slotOwners.set(key, new Set());
+    slotOwners.get(key)!.add(task.id);
+  }
   const tasks = raw.tasks.map((t) => {
     if (
       typeof t.id !== "string" ||
-      (t.goalId !== null && !goals.some((g) => g.id === t.goalId)) ||
+      (t.goalId !== null && !goalById.has(t.goalId)) ||
       typeof t.title !== "string" ||
       !t.title.trim() ||
       t.title.length > 180 ||
@@ -1777,7 +1823,7 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
     )
       throw new Error("The backup contains an invalid all-day event.");
     if (t.eventSeriesId !== undefined || t.eventOccurrenceDate !== undefined) {
-      const series = eventSeries?.find((item) => item.id === t.eventSeriesId);
+      const series = seriesById.get(t.eventSeriesId!);
       if (
         t.goalId !== null ||
         !series ||
@@ -1792,19 +1838,14 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
         t.activityId !== undefined ||
         t.occurrenceKey !== undefined ||
         !["pending", "done"].includes(t.status) ||
-        raw.tasks.some(
-          (other) =>
-            other.id !== t.id &&
-            other.date === t.date &&
-            other.slotId === t.slotId,
-        ))
+        slotOwners.get(JSON.stringify([t.date, t.slotId]))!.size > 1)
     )
       throw new Error("The backup contains an invalid standalone event.");
     if (
       t.activityId &&
       (t.activityId !== t.goalId ||
         !validDate(t.occurrenceKey) ||
-        !goals.find((g) => g.id === t.goalId)?.recurrence)
+        !goalById.get(t.goalId)?.recurrence)
     )
       throw new Error("The backup contains an invalid recurring occurrence.");
     return {
@@ -1838,13 +1879,14 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
     throw new Error("The backup has duplicate event occurrences.");
   const visited = new Set(),
     visiting = new Set();
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
   function visit(t: Task) {
     if (visiting.has(t.id))
       throw new Error("The backup has a dependency cycle.");
     if (visited.has(t.id)) return;
     visiting.add(t.id);
     for (const key of t.dependsOn) {
-      const dep = tasks.find((d) => d.id === key);
+      const dep = taskById.get(key);
       if (!dep || dep.goalId !== t.goalId)
         throw new Error("The backup has an invalid prerequisite.");
       visit(dep);
@@ -1885,7 +1927,10 @@ export function validateBackup(input: unknown, today?: string): CalendarState {
     lastRecoveryDay: validDate(raw.lastRecoveryDay) ? raw.lastRecoveryDay : "",
   };
   for (const [key, value] of Object.entries(raw.choices || {}))
-    if (tasks.some((t) => `${t.date}/${t.slotId}` === key && t.id === value))
+    if (
+      taskById.has(value) &&
+      `${taskById.get(value)!.date}/${taskById.get(value)!.slotId}` === key
+    )
       next.choices[key] = value;
   validateRepeatConflicts(next, today);
   return next;

@@ -484,6 +484,25 @@ test("SQLite calendar APIs require the private session and CSRF and preserve mig
   const saved = await (await post("calendar/bootstrap", payload)).json();
   assert.deepEqual(saved.state.tasks, legacy.tasks);
   assert.equal(
+    (await post("calendar/load", { scope: "main" }, { Cookie: deviceCookie }))
+      .status,
+    401,
+  );
+  assert.equal(
+    (
+      await post(
+        "calendar/load",
+        { scope: "main" },
+        { ...headers, "X-Calendar-CSRF": "wrong" },
+      )
+    ).status,
+    403,
+  );
+  assert.deepEqual(
+    (await (await post("calendar/load", { scope: "main" })).json()).state.tasks,
+    legacy.tasks,
+  );
+  assert.equal(
     (
       await post("calendar/save", {
         scope: "main",

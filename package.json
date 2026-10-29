@@ -1,10 +1,11 @@
 {
   "name": "appa",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "npm run build:runtime && node --test tests/*.test.mjs",
+    "test": "npm run build:runtime && node --test tests/*.test.mjs && npm run test:renderer",
+    "test:renderer": "vite build --outDir dist/renderer-test && node scripts/test-renderer.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.runtime.json --noEmit",
     "build:runtime": "tsc -p tsconfig.runtime.json",
     "generate:holidays": "node scripts/generate-holiday-catalog.mjs",

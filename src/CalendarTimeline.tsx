@@ -9,7 +9,8 @@ import type {
   KeyboardEvent,
 } from "react";
 import { Check, LockSimple } from "@phosphor-icons/react";
-import { clockTime, weekNumber } from "./CalendarViews";
+import { clockTime } from "./calendar";
+import { weekNumber } from "./calendarDates";
 import type {
   CalendarState,
   EventDraft,
@@ -26,10 +27,11 @@ import { AllDayRow } from "./AllDayRow";
 import {
   draggableTimelineTask,
   timelineDropStart,
-  moveTimelineTask,
+  validateTimelinePreview,
 } from "./timelineDrag";
 import { errorMessage } from "./errors";
 import { useTimelineResize } from "./useTimelineResize";
+import { useCalendarQueries } from "./useCalendarQueries";
 
 const timelineEnd = 24 * 60;
 const hours = Array.from({ length: 25 }, (_, i) => i * 60);
@@ -136,7 +138,14 @@ export function CalendarTimeline({
     let error = "";
     try {
       if (source.current)
-        moveTimelineTask(state, source.current.task, date, start, today);
+        validateTimelinePreview(
+          state,
+          source.current.task,
+          date,
+          start,
+          source.current.task.minutes,
+          today,
+        );
       else cal.scheduleTodo(state, draggedTodo!.id, date, start, today);
     } catch (caught) {
       error = errorMessage(caught);
@@ -148,9 +157,10 @@ export function CalendarTimeline({
 
   const singleDay = dates.length === 1;
   const visibleState = cal.calendarDisplayState(state);
+  const queries = useCalendarQueries(state);
   const slotsByDay = dates.map((date) => ({
     date,
-    slots: cal.slotsFor(visibleState, date),
+    slots: queries.slotsFor(date),
   }));
   const shortestSlot = slotsByDay
     .flatMap(({ slots }) => slots)
@@ -256,6 +266,7 @@ export function CalendarTimeline({
             </div>
           )}
           <AllDayRow
+            queries={queries}
             dates={dates}
             state={visibleState}
             holidays={holidays}

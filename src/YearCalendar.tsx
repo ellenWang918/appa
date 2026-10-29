@@ -6,11 +6,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { monthDays, monthStart, weekdays, weekNumber } from "./CalendarViews";
+import { monthDays, monthStart, weekdays, weekNumber } from "./calendarDates";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { holidayLabel } from "./holidayDates";
 import * as cal from "./calendar";
 import type { CalendarState, HolidayLookup } from "./types";
+import { createCalendarQueries } from "./calendarQueries";
 
 type YearMonthsProps = {
   year: string;
@@ -197,21 +198,15 @@ const YearMonths = memo(function YearMonths({
     { length: 12 },
     (_, index) => `${year}-${String(index + 1).padStart(2, "0")}-01`,
   );
-  const scheduledDates = useMemo(() => {
-    const dates = new Set<string>();
-    for (
-      let date = `${year}-01-01`;
-      date.slice(0, 4) === year;
-      date = cal.addDays(date, 1)
-    ) {
-      if (
-        cal.slotsFor(state, date).length ||
-        cal.allDaySlotsFor(state, date).length
-      )
-        dates.add(date);
-    }
-    return dates;
-  }, [state, year]);
+  const { tasks, goals, eventSeries, choices } = state;
+  const queries = useMemo(
+    () => createCalendarQueries({ tasks, goals, eventSeries, choices }),
+    [tasks, goals, eventSeries, choices],
+  );
+  const scheduledDates = useMemo(
+    () => queries.scheduledDates(`${year}-01-01`, `${year}-12-31`),
+    [queries, year],
+  );
   const dayLabels = weekdays(settings, "narrow");
 
   return (

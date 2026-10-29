@@ -1,5 +1,8 @@
 import type { CalendarState, EventRepeat, EventSeries, Task } from "./types.js";
 
+export const eventOccurrenceKey = (seriesId: string, date: string) =>
+  JSON.stringify([seriesId, date]);
+
 export const EVENT_REPEATS: readonly EventRepeat[] = [
   "daily",
   "weekly",
@@ -87,15 +90,18 @@ export function* eventOccurrenceDates(
   }
 }
 export function eventForSeriesDate(
-  state: CalendarState,
+  state: Pick<CalendarState, "tasks">,
   series: EventSeries,
   date: string,
+  overrides?: ReadonlyMap<string, Task>,
 ): Task | undefined {
   if (!isEventOccurrence(series, date)) return;
-  const saved = state.tasks.find(
-    (task) =>
-      task.eventSeriesId === series.id && task.eventOccurrenceDate === date,
-  );
+  const saved = overrides
+    ? overrides.get(eventOccurrenceKey(series.id, date))
+    : state.tasks.find(
+        (task) =>
+          task.eventSeriesId === series.id && task.eventOccurrenceDate === date,
+      );
   if (saved) return saved.date === date ? saved : undefined;
   return {
     id: `${series.id}/${date}`,
@@ -113,12 +119,19 @@ export function eventForSeriesDate(
   };
 }
 export function virtualEventsForDate(
-  state: CalendarState,
+  state: Pick<CalendarState, "tasks" | "eventSeries">,
   date: string,
+  index?: {
+    byId: ReadonlyMap<string, Task>;
+    overrides: ReadonlyMap<string, Task>;
+  },
 ): Task[] {
   return (state.eventSeries ?? []).flatMap((series) => {
-    const event = eventForSeriesDate(state, series, date);
-    return event && !state.tasks.some((task) => task.id === event.id)
+    const event = eventForSeriesDate(state, series, date, index?.overrides);
+    return event &&
+      !(index
+        ? index.byId.has(event.id)
+        : state.tasks.some((task) => task.id === event.id))
       ? [event]
       : [];
   });

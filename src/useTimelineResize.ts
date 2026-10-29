@@ -4,7 +4,7 @@ import type { CalendarState, Slot, Task, TimelineResizeEdge } from "./types";
 import {
   draggableTimelineTask,
   timelineResizeRange,
-  resizeTimelineTask,
+  validateTimelinePreview,
 } from "./timelineDrag";
 import { slotGoalColor } from "./calendar";
 import { errorMessage } from "./errors";
@@ -95,7 +95,14 @@ export function useTimelineResize({
     drag.key = key;
     let error = "";
     try {
-      resizeTimelineTask(state, drag.task, next.start, next.minutes, today);
+      validateTimelinePreview(
+        state,
+        drag.task,
+        drag.task.date,
+        next.start,
+        next.minutes,
+        today,
+      );
     } catch (caught) {
       error = errorMessage(caught);
     }

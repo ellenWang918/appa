@@ -1,9 +1,10 @@
+import { timeRange } from "./timeRange";
 import { useActionGuard, useUnsavedChanges } from "./ActionGuard";
 import { useId, useState } from "react";
 import type { EventRepeatChoice, Task, TaskEdit } from "./types";
 import { useInterfaceText } from "./InterfaceLanguage";
 import { CalendarBlank, Clock } from "@phosphor-icons/react";
-import { clockTime } from "./CalendarViews";
+import { clockTime } from "./calendar";
 import { errorMessage } from "./errors";
 import { AllDayToggle } from "./AllDayToggle";
 import { EventRepeatSelect } from "./EventRepeatSelect";
@@ -46,19 +47,10 @@ export function TaskEditor({
         event.preventDefault();
         try {
           const values = new FormData(event.currentTarget);
-          const toMinute = (value: string) => {
-            const [hour, minute] = value.split(":").map(Number);
-            return hour * 60 + minute;
-          };
-          const start = toMinute(startTime);
-          const end = toMinute(endTime);
           onSave({
             title: String(values.get("title")),
             date: String(values.get("date")),
-            start: allDay ? 0 : start,
-            minutes: allDay
-              ? 1440
-              : (end === 0 && start > 0 ? 1440 : end) - start,
+            ...timeRange(startTime, endTime, allDay),
             ...(task.goalId === null ? { allDay, repeat: repeatChoice } : {}),
           });
         } catch (caught) {

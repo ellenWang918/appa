@@ -16,20 +16,25 @@ import { IconButton } from "./ui";
 import { errorMessage } from "./errors";
 import { flushCalendar, storageScope } from "./calendarStorage";
 import { assistantChatHistory } from "./planningChat";
+import { parseEventInput } from "./eventComposer";
+import { InlineEventInput } from "./InlineEventInput";
+import type { ComposerInputHandle } from "./InlineEventInput";
+import { localDate, clockTime } from "./calendar";
+import { eventRepeatLabel } from "./eventRepeat";
 
 export function FloatingChat({
   onActivate,
   onReview,
   state,
   onReference,
-  onReviewEvent,
+  onCreateEvent,
   onApply,
 }: {
   onActivate: (open: () => void) => void;
   onReview: (plan: Plan | null, intention: string) => void;
   state: CalendarState;
   onReference: (reference: CalendarReference) => void;
-  onReviewEvent: (event: TaskEdit) => void;
+  onCreateEvent: (event: TaskEdit) => void;
   onApply: (proposalId: string, kind: "calendar" | "todos") => Promise<void>;
 }) {
   const t = useInterfaceText();
@@ -45,11 +50,15 @@ export function FloatingChat({
   const [error, setError] = useState("");
   const auth = useChatgptConnection(true);
   const root = useRef<HTMLElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<ComposerInputHandle>(null);
   const log = useRef<HTMLDivElement>(null);
   const lock = useRef(false);
   const conversationId = useId();
   const errorId = useId();
+  const composerErrorId = useId();
+  const composerHintId = useId();
+  const [composerError, setComposerError] = useState("");
+  const inputEvent = parseEventInput(input, localDate(state.settings.timezone));
   useEffect(() => {
     if (!active) return;
     const outside = (event: PointerEvent) => {
@@ -79,7 +88,8 @@ export function FloatingChat({
     };
   }, [active, guard]);
   useEffect(() => {
-    if (active && log.current) log.current.scrollTop = log.current.scrollHeight;
+    if (!active || !log.current) return;
+    log.current.scrollTop = log.current.scrollHeight;
   }, [active, messages, busy, error]);
   async function send() {
     const text = input.trim();
@@ -99,7 +109,15 @@ export function FloatingChat({
         message: text,
         model,
       });
-      setResult(response);
+      setResult(response.event ? null : response);
+      if (response.event) {
+        const event = response.event;
+        setInput(
+          `${event.title} on ${event.date} ${event.allDay ? "all day" : `at ${clockTime(event.start)} for ${event.minutes} min`}${event.repeat && event.repeat !== "none" ? ` ${eventRepeatLabel(event.repeat).toLowerCase()}` : ""}`,
+        );
+        setActive(false);
+        inputRef.current?.focus();
+      }
       setSelection(
         response.kind === "todo_selection" && response.todos?.length === 1
           ? [response.todos[0].id]
@@ -180,6 +198,42 @@ export function FloatingChat({
       setBusy(false);
     }
   }
+  function submit() {
+    if (lock.current || busy) return;
+    if (inputEvent.candidate) {
+      setActive(false);
+      const event = inputEvent.event;
+      if (!event) {
+        setComposerError(
+          inputEvent.issue ?? t("Add a date and time for this event."),
+        );
+        return;
+      }
+      onActivate(() => {
+        if (lock.current) return;
+        lock.current = true;
+        try {
+          onCreateEvent(event);
+          setInput("");
+          setComposerError("");
+          inputRef.current?.focus();
+        } catch (caught) {
+          setComposerError(errorMessage(caught));
+        } finally {
+          lock.current = false;
+        }
+      });
+      return;
+    }
+    if (auth.connection?.connected && !input.trim()) return;
+    if (active) void send();
+    else
+      onActivate(() => {
+        setStarted(true);
+        setActive(true);
+        void send();
+      });
+  }
   const time = (start: number) =>
     `${Math.floor(start / 60)
       .toString()
@@ -211,7 +265,7 @@ export function FloatingChat({
             {!messages.length && auth.connection?.connected && (
               <p className="small muted">
                 {t(
-                  "Plan a goal, manage your To do list, ask about your calendar, or rearrange tasks. Review changes before applying them.",
+                  "Plan a goal, manage your To do list, or ask about your calendar. To add an event directly, type its name, date and time in the composer and press Enter.",
                 )}
               </p>
             )}
@@ -245,28 +299,6 @@ export function FloatingChat({
               >
                 {t("Review plan")}
               </button>
-            )}
-            {result?.event && (
-              <div className="chat-event-proposal">
-                <strong>{result.event.title || t("New event")}</strong>
-                <span>
-                  {result.event.date} ·{" "}
-                  {result.event.allDay
-                    ? t("All day")
-                    : `${time(result.event.start)}–${time(result.event.start + result.event.minutes)}`}
-                </span>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => {
-                    setActive(false);
-                    onReviewEvent(result.event!);
-                  }}
-                >
-                  {t("Review event")}
-                </button>
-              </div>
             )}
             {result?.kind === "selection" && (
               <fieldset className="chat-calendar-selection">
@@ -491,49 +523,77 @@ export function FloatingChat({
         className="planning-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          if (lock.current || (auth.connection?.connected && !input.trim()))
-            return;
-          if (active) void send();
-          else
-            onActivate(() => {
-              setStarted(true);
-              setActive(true);
-              void send();
-            });
+          submit();
         }}
       >
-        <input
+        <InlineEventInput
           ref={inputRef}
-          aria-label={t("Message Appa")}
-          aria-controls={started ? conversationId : undefined}
-          aria-describedby={
-            active && (error || auth.error) ? errorId : undefined
-          }
           value={input}
-          readOnly={busy}
-          maxLength={3600}
-          placeholder={t("Tell Appa what you want to do…")}
-          onChange={(event) => setInput(event.target.value)}
+          parsed={inputEvent}
+          language={state.settings.language}
+          disabled={busy}
+          controls={started ? conversationId : undefined}
+          describedBy={
+            composerError
+              ? composerErrorId
+              : inputEvent.candidate
+                ? composerHintId
+                : active && (error || auth.error)
+                  ? errorId
+                  : undefined
+          }
+          onChange={(text) => {
+            setInput(text);
+            setComposerError("");
+            if (
+              parseEventInput(text, localDate(state.settings.timezone))
+                .candidate
+            )
+              setActive(false);
+          }}
+          onSubmit={submit}
         />
         <IconButton
-          showTooltip={!auth.connection?.connected}
+          showTooltip={true}
           type="submit"
-          aria-expanded={active}
-          aria-controls={started ? conversationId : undefined}
+          aria-expanded={inputEvent.candidate ? undefined : active}
+          aria-controls={
+            started && !inputEvent.candidate ? conversationId : undefined
+          }
           aria-label={t(
-            auth.connection?.connected
-              ? "Send message"
-              : "Sign in to ChatGPT first",
+            inputEvent.candidate
+              ? "Add event"
+              : auth.connection?.connected
+                ? "Send message"
+                : "Sign in to ChatGPT first",
           )}
           disabled={
             busy ||
-            (!!auth.connection?.connected &&
+            (!inputEvent.candidate &&
+              !!auth.connection?.connected &&
               (!input.trim() || !auth.connection.models.length))
           }
         >
           <ArrowUp size={19} weight="bold" />
         </IconButton>
       </form>
+      {composerError ? (
+        <p
+          className="composer-feedback error"
+          role="alert"
+          id={composerErrorId}
+        >
+          {t(composerError)}
+        </p>
+      ) : (
+        inputEvent.candidate && (
+          <p className="composer-feedback" id={composerHintId}>
+            {inputEvent.event
+              ? `${t("Enter to add event")} · ${inputEvent.event.allDay ? t("All day") : t("{minutes} min", { minutes: inputEvent.event.minutes })}`
+              : t(inputEvent.issue ?? "Add a date and time for this event.")}
+          </p>
+        )
+      )}
     </section>
   );
 }

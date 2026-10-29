@@ -4,17 +4,21 @@ Implemented in source: 18 October 2026, Australia/Brisbane. Automated checks use
 
 ## Scope and presentation
 
-The floating chat supports planning new work, answering questions from saved calendar data, reorganising upcoming entries and managing the unscheduled To do list. Users do not select a mode. The existing personal ChatGPT connection and account-discovered model are used. Calendar storage and manual planning work without signing in.
+The bottom composer adds recognised single events directly to the local calendar. It also supports chat for planning new work, answering questions from saved calendar data, reorganising upcoming entries and managing the unscheduled To do list. Users do not select a mode. Chat uses the existing personal ChatGPT connection and account-discovered model. Recognised event entry, calendar storage and manual planning work without signing in.
 
-Preserve the approved floating layout: same width as the compact composer, 560px maximum, 400px total expanded height, scrollable conversation and bottom-anchored input. No Close button or backdrop. Click/focus keeps the conversation collapsed for typing. Submitting a non-empty message opens and sends in one action; when disconnected, Send stays enabled with a “Sign in to ChatGPT first” tooltip on hover or keyboard focus, and opens sign-in without losing any text, even with an empty input. Escape/outside click collapses, preserving conversation and unsent text for this session. Chat history is not persisted or exported.
+Preserve the approved floating layout: same width as the compact composer, 560px maximum, 400px total expanded height, scrollable conversation and bottom-anchored input. No Close button or backdrop. Click/focus keeps the conversation collapsed for typing. Submitting a recognised event keeps the conversation collapsed and saves it directly. Submitting another non-empty message opens chat and sends in one action; when disconnected, Send stays enabled with a “Sign in to ChatGPT first” tooltip on hover or keyboard focus, and opens sign-in without losing any text, even with an empty input. Escape/outside click collapses, preserving conversation and unsent text for this session. Chat history is not persisted or exported.
 
-## 1. Plan a goal or event
+## 1. Add an event or plan a goal
 
-Example: “I want to run five kilometres.”
+Example event: “Review launch notes Friday at 2:55 pm for 45 minutes”.
 
-Appa uses recent conversation and scheduling hours to ask useful clarification, then proposes a finite goal, recurring activity or standalone event. Missing essential dates/times prompt clarification. A new goal offers Review plan in the existing editable planner, with Add to active goals or Save in Later. A single appointment offers Review event in the existing event editor, prefilled with date, time, duration, all-day status and supported recurrence. Planning alone does not save events or goals. Approval still checks prerequisites, available hours, recurrence and overlaps; new work supports existing Undo.
+Recognised date, time, duration, all-day and repeat text becomes neutral inline chips inside the same composer as the user types. Date and time remain separate chips. Backspace or Delete touching a chip first restores its original text without removing it; subsequent deletion edits that text normally. Typing into the restored text resumes recognition, so repairing “tomorro” to “tomorrow” immediately recreates its date chip. This applies to every chip type; typing elsewhere does not rewrap an untouched detail. With a date or time chip focused, or the caret beside it, Up/Down adjusts the date by one day or the time by five minutes. Keyboard adjustment retains focus for repeated presses and does not open chat or a picker. Clicking a chip opens a small anchored picker to adjust that detail. The text remains editable around the chips; typing alone does not save an event or make an AI request.
 
-Follow-up messages revise the proposal rather than automatically creating duplicate goals. Goal scheduling uses Appa's existing scheduler; the assistant does not promise that an arbitrary deadline or unavailable slot can be met.
+Enter or the red action creates a complete event through the existing calendar validation, local persistence and Undo. The input clears and the calendar selects and scrolls to the new event box. Day and Week retain their view; Month and Year switch to Day to reveal the event. A hidden personal calendar becomes visible. Event entry never opens the expanded conversation or event editor. Missing or ambiguous details and overlaps stay in the compact composer for correction without losing the input. An existing changed editor still uses its normal Keep editing / Discard changes guard before creation.
+
+The local parser supports today/tomorrow, upcoming English weekdays, month names, ISO dates, unambiguous day/month dates, explicit 12/24-hour times and ranges, all-day wording, common durations and supported repeat intervals. Relative dates use the calendar timezone. A start time without a duration defaults to 30 minutes, shown beside the Enter hint. Ambiguous dates, missing clock times, conflicting scheduling details and ranges crossing midnight require correction. Calendar questions and requests to change existing items remain chat requests. Other wording may use the assistant; an assistant event response fills the compact composer and waits for Enter to create it.
+
+Example goal: “I want to run five kilometres.” Appa uses recent conversation and scheduling hours to ask useful clarification, then offers Review plan in the existing editable planner, with Add to active goals or Save in Later. Generating a plan does not save work. Goal scheduling uses Appa's existing scheduler and checks prerequisites, available hours, recurrence and overlaps; the assistant does not promise that an arbitrary deadline or unavailable slot can be met. Successful changes support Undo.
 
 ## 2. Answer calendar questions
 
@@ -72,10 +76,14 @@ Only messages, recent conversation and necessary date/timezone/availability cont
 | A record lacks completion | Answer describes a recorded appointment, without claiming completion. |
 | No matching record | No invented date or unrelated event is returned. |
 | A model attempts an invented calendar answer | Search facts come from local records, not the model's narrative. |
-| Plan/event or selection/preview is generated | Saved events and goals are unchanged until explicit approval. |
+| AI plan/event or selection/preview is generated | Saved events and goals are unchanged until the user creates the event or approves the proposal. |
 | Only personal entries are selected | Work remains in place; preview/apply moves only selected IDs. |
 | Multiple moves conflict or revision changes | Apply fails atomically; stale/cross-workspace/replayed tokens cannot mutate the calendar. |
 | Move succeeds | Identities and recurring overrides survive; one Undo restores the batch. |
 | Local service access is unauthorised | Device cookie, session, same-origin and CSRF checks remain enforced. |
 
-Remaining manual checks: live sign-in/inference, realistic clarification quality, clicking history references and selection/preview controls, keyboard focus/announcements, narrow/zoomed layouts, native restart/migration and packaged desktop operation. Browser visual inspection is currently blocked by the tool URL policy; no alternate automation was used to bypass it.
+Remaining manual checks: live sign-in/inference, realistic clarification quality, clicking history references and selection/preview controls, assistive-technology announcements, zoomed layouts, native restart/migration and packaged desktop operation.
+
+## Inline event entry, 29 October 2026
+
+The corrected flow replaces the earlier event-review card with inline chips and direct calendar creation. All 190 automated checks and the production build passed. Hidden Electron checks exercised native incremental typing, separate date/time tags, Backspace/Delete restoration to editable text, recognition after repairing date/time/duration/repeat/all-day text, unrelated title edits, word deletion, selection shortcuts, repeated focused/adjacent arrow adjustment, retained range duration and weekly recurrence, Enter creation through the real local service and SQLite, Undo, missing details, conflicts, midnight, all-day recurrence and narrow-screen event reveal. Enter also creates the event after keyboard adjustment of a focused tag; Space opens its picker. Direct creation made no AI request while signed out and kept the upper chat panel and event editor closed. Desktop and narrow screenshots were inspected. Live ChatGPT inference and the installed release remain unverified for these changes.

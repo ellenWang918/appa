@@ -1,4 +1,4 @@
-import type { ApiRequests, ApiResponses } from "./types";
+import type { ApiRequests, ApiResponses } from "./types.js";
 
 let csrf: string | undefined;
 export class ApiError extends Error {

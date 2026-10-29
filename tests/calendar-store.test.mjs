@@ -32,6 +32,53 @@ async function fixture(t) {
   };
 }
 const today = c.localDate("Australia/Brisbane");
+test("Incremental projections retain search correctness across drafts, renames, edits and deletion", async (t) => {
+  const f = await fixture(t);
+  let state = c.createEvent(
+    c.blank(today),
+    { title: "Dentist", date: today, start: 540, minutes: 30 },
+    today,
+  );
+  state = c.editPersonalCalendar(state, "Family", "clay");
+  let version = f.store.bootstrap("main", state).storageVersion;
+  const save = () => {
+    version = f.store.save("main", state, version).storageVersion;
+  };
+  state = { ...state, draft: { intention: "Draft only", plan: null } };
+  save();
+  assert.equal(
+    f.store.matchingTasks("main", ["Family"], today, today).length,
+    1,
+  );
+  state = c.editPersonalCalendar(state, "Home", "teal");
+  save();
+  assert.equal(
+    f.store.matchingTasks("main", ["Family"], today, today).length,
+    0,
+  );
+  assert.equal(f.store.matchingTasks("main", ["Home"], today, today).length, 1);
+  state = c.editTask(
+    state,
+    state.tasks[0].id,
+    { title: "Dental check", date: today, start: 600, minutes: 30 },
+    today,
+  );
+  save();
+  assert.equal(
+    f.store.matchingTasks("main", ["Dentist"], today, today).length,
+    0,
+  );
+  assert.equal(
+    f.store.matchingTasks("main", ["Dental"], today, today)[0].start,
+    600,
+  );
+  state = c.removeEvent(state, state.tasks[0].id);
+  save();
+  assert.equal(f.store.matchingTasks("main", [], today, today).length, 0);
+  f.reopen();
+  assert.equal(f.store.load("main").state.tasks.length, 0);
+  assert.equal(f.store.load("main").state.draft.intention, "Draft only");
+});
 const query = (patch = {}) => ({
   terms: [],
   from: c.addDays(today, -30),

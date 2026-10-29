@@ -19,6 +19,9 @@
     "src/types.ts",
     "src/errors.ts",
     "src/actionPatterns.ts",
-    "src/planningChat.ts"
+    "src/planningChat.ts",
+    "src/eventComposer.ts",
+    "src/calendarStorage.ts",
+    "src/timeRange.ts"
   ]
 }

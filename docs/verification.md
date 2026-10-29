@@ -1,5 +1,22 @@
 # Verification status
 
+## Local Windows update to 0.1.7 — 2026-10-30
+
+- Built the Windows x64 NSIS installer and installed Appa 0.1.7 over 0.1.6. Installer exit code is zero, the installed executable reports 0.1.7.0, and its application archive matches the packaged build by SHA-256. A matching installer checksum is retained locally in `release/`.
+- Backed up the closed application's profile privately under ignored `.local/` before installation. The calendar database, saved origin configuration, account registrations and encrypted credentials had identical hashes immediately before and after installation. The original profile, installer identity and shortcuts are retained.
+- Started the installed application and confirmed its processes respond. The bundled production service rejects requests without its device cookie with HTTP 403. This startup/service check does not constitute manual visual verification or genuine account consent/inference testing.
+- All **194 Node checks**, the automated React/local-service/SQLite renderer journeys, strict TypeScript checks and production build pass. New checks cover non-committing move/resize previews, validation parity and access to goal steps/history beyond the initial 15 records. Existing inline event-tag editing, calendar groups, save recovery, shared reservations and Undo checks remain passing.
+- Package inspection confirms the compiled desktop entry and client are present and excludes application TypeScript sources, tests, private QA, source maps, databases, registrations, credentials and environment files. Source publication excludes the private profile backup and generated installer.
+- This update includes direct inline event entry without AI, separate editable date/time tags, shared Calendar/Active goal rows and palette, indexed view queries, on-demand deletion scope and lighter timeline previews. Local installer creation and source publication are separate from publishing a GitHub Release; no installer upload or release tag is included.
+
+## Architecture, persistence and scalability fixes — 2026-10-26
+
+- **184 Node checks** pass, including new save-queue recovery, response-loss reconciliation, real revision conflicts, pending-save coalescing, recurrence-aware date queries, time conversion and incremental search-projection checks. Strict TypeScript and the production build pass.
+- `npm test` also builds and runs four automated renderer journeys in a hidden Electron window: temporary save failure → latest-edit retry → reload; event creation/editing, resize/drag and Undo through SQLite; dirty-draft keep/discard; and a mocked AI proposal that changes data only after Apply, with Undo. The window uses a temporary profile and synthetic calendar; its launcher removes the profile after Electron releases its locks. These checks run in the existing Windows CI gate.
+- A repeatable `node scripts/benchmark-calendar.mjs` benchmark (after runtime compilation) uses 1k/5k/10k completed all-day events on distinct historical dates. On this machine with Node 24.14.1, median draft saves were **5/21/40 ms**, versus the audit's **19/213/893 ms**. Five Year query indexes took **1/4/7 ms**, versus **34/99/227 ms** for the previous daily slot scans. Three saves per size; timings exclude HTTP and DOM rendering and are not supported capacity guarantees.
+- Shared workspace/navigation controllers, goal navigation, colour selection, time-range conversion and pure date/query helpers replace duplicated ownership. CSS and the approved visual baseline are preserved.
+- The renderer checks use real React, the private local HTTP service and SQLite with synthetic inputs. They do not verify genuine ChatGPT consent/inference, native physical dragging, manual visual/accessibility checks or installer upgrades. Those remain separate verification tasks.
+
 ## Local Windows update to 0.1.5 — 2026-10-18
 
 - Built the Windows x64 installer and installed Appa 0.1.5 over 0.1.4. Installer exit code is zero, executable product version is 0.1.5.0, and the installed `app.asar` hash matches the verified build exactly.

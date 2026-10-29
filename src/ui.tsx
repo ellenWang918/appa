@@ -2,17 +2,19 @@ import { useInterfaceText } from "./InterfaceLanguage";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode, Ref } from "react";
 import type { GoalColor } from "./types";
 
 export function IconButton({
   children,
   type = "button",
   showTooltip = true,
+  buttonRef,
   ...props
 }: ComponentPropsWithoutRef<"button"> & {
   "aria-label": string;
   showTooltip?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   const id = useId();
@@ -61,7 +63,11 @@ export function IconButton({
       <button
         {...props}
         type={type}
-        ref={ref}
+        ref={(element) => {
+          ref.current = element;
+          if (typeof buttonRef === "function") return buttonRef(element);
+          if (buttonRef) buttonRef.current = element;
+        }}
         aria-describedby={
           [props["aria-describedby"], tooltip ? id : null]
             .filter(Boolean)
